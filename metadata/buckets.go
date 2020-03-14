@@ -117,12 +117,11 @@
 //        │  ╘══*proxy name*
 //        │     ╘══*sandbox id*
 //        │        ├──runtime_spec : <json>      - JSON serialized runtime spec
+//        |        ├──descriptor : <binary>      - Connection descriptor
 //        │        ├──createdat : <binary time>  - Created at
 //        │        ├──updatedat : <binary time>  - Updated at
 //        │        └──labels
 //        │        |  ╘══*key* : <string>        - Label value
-//        │        └──annotations
-//        │        |  ╘══*key* : <string>        - Annotation value
 //        │        ├──extensions
 //        │           ╘══*key* : <binary>        - Proto marshaled extension
 package metadata

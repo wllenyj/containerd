@@ -28,6 +28,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/containerd/typeurl"
+	ptypes "github.com/gogo/protobuf/types"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/pkg/errors"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/health/grpc_health_v1"
+
 	containersapi "github.com/containerd/containerd/api/services/containers/v1"
 	contentapi "github.com/containerd/containerd/api/services/content/v1"
 	diffapi "github.com/containerd/containerd/api/services/diff/v1"
@@ -54,17 +63,10 @@ import (
 	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/remotes"
 	"github.com/containerd/containerd/remotes/docker"
+	"github.com/containerd/containerd/sandbox"
 	"github.com/containerd/containerd/services/introspection"
 	"github.com/containerd/containerd/snapshots"
 	snproxy "github.com/containerd/containerd/snapshots/proxy"
-	"github.com/containerd/typeurl"
-	ptypes "github.com/gogo/protobuf/types"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	specs "github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/pkg/errors"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/backoff"
-	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 func init() {
@@ -601,6 +603,13 @@ func (c *Client) SnapshotService(snapshotterName string) snapshots.Snapshotter {
 	c.connMu.Lock()
 	defer c.connMu.Unlock()
 	return snproxy.NewSnapshotter(snapshotsapi.NewSnapshotsClient(c.conn), snapshotterName)
+}
+
+// SandboxService returns the underlying sandbox service for the provided proxy plugin name
+func (c *Client) SandboxService(name string) sandbox.Store {
+	c.connMu.Lock()
+	defer c.connMu.Unlock()
+	return newSandboxClient(c.conn, name)
 }
 
 // TaskService returns the underlying TasksClient

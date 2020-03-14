@@ -18,28 +18,29 @@ package proxy
 
 import (
 	"context"
-	"time"
 
-	"github.com/containerd/typeurl"
 	"github.com/pkg/errors"
 
 	api "github.com/containerd/containerd/api/services/sandbox/v1"
 	"github.com/containerd/containerd/sandbox"
 )
 
+// proxyClient is a client used by containerd to communicate with a sandbox proxy plugin
 type proxyClient struct {
 	name   string
 	client api.SandboxClient
 }
 
+var _ sandbox.Service = &proxyClient{}
+
 func NewClient(client api.SandboxClient, name string) sandbox.Service {
 	return &proxyClient{client: client, name: name}
 }
 
-func (p *proxyClient) Start(ctx context.Context, info *sandbox.CreateInfo) (*sandbox.Info, error) {
-	specAny, err := typeurl.MarshalAny(info.RuntimeSpec)
+func (p *proxyClient) Start(ctx context.Context, info *sandbox.CreateOpts) (sandbox.Descriptor, error) {
+	specAny, err := sandbox.SpecToAny(info.RuntimeSpec)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to marshal runtime spec")
+		return sandbox.Descriptor{}, err
 	}
 
 	req := &api.StartSandboxRequest{
@@ -52,18 +53,10 @@ func (p *proxyClient) Start(ctx context.Context, info *sandbox.CreateInfo) (*san
 
 	resp, err := p.client.Start(ctx, req)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to start sandbox")
+		return sandbox.Descriptor{}, errors.Wrap(err, "failed to start sandbox")
 	}
 
-	return &sandbox.Info{
-		ID:          resp.ID,
-		RuntimeSpec: info.RuntimeSpec,
-		Labels:      req.Labels,
-		Extensions:  req.Extensions,
-		CreatedAt:   time.Time{},
-		UpdatedAt:   time.Time{},
-		Annotations: nil,
-	}, nil
+	return resp.Descriptor_, nil
 }
 
 func (p *proxyClient) Stop(ctx context.Context, id string) error {
@@ -79,7 +72,7 @@ func (p *proxyClient) Stop(ctx context.Context, id string) error {
 	return nil
 }
 
-func (p *proxyClient) Update(ctx context.Context, info *sandbox.CreateInfo, fieldpaths ...string) error {
+func (p *proxyClient) Update(ctx context.Context, info *sandbox.CreateOpts, fieldpaths ...string) error {
 	req := api.UpdateSandboxRequest{
 		Name:       p.name,
 		ID:         info.ID,
@@ -89,9 +82,9 @@ func (p *proxyClient) Update(ctx context.Context, info *sandbox.CreateInfo, fiel
 	}
 
 	if info.RuntimeSpec != nil {
-		any, err := typeurl.MarshalAny(info.RuntimeSpec)
+		any, err := sandbox.SpecToAny(info.RuntimeSpec)
 		if err != nil {
-			return errors.Wrap(err, "failed to marshal runtime spec")
+			return err
 		}
 
 		req.RuntimeSpec = any

@@ -45,7 +45,7 @@ func (p *proxyServer) Start(ctx context.Context, req *api.StartSandboxRequest) (
 		return nil, errdefs.ToGRPC(err)
 	}
 
-	createInfo := sandbox.CreateInfo{
+	createInfo := sandbox.CreateOpts{
 		ID:          req.ID,
 		RuntimeSpec: spec,
 		Labels:      req.Labels,
@@ -58,7 +58,7 @@ func (p *proxyServer) Start(ctx context.Context, req *api.StartSandboxRequest) (
 	}
 
 	return &api.StartSandboxResponse{
-		ID: info.ID,
+		Descriptor_: info,
 	}, nil
 }
 
@@ -71,7 +71,7 @@ func (p *proxyServer) Stop(ctx context.Context, req *api.StopSandboxRequest) (*a
 }
 
 func (p *proxyServer) Update(ctx context.Context, req *api.UpdateSandboxRequest) (*api.UpdateSandboxResponse, error) {
-	info := &sandbox.CreateInfo{
+	info := &sandbox.CreateOpts{
 		ID:         req.ID,
 		Labels:     req.Labels,
 		Extensions: req.Extensions,

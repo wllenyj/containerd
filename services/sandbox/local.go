@@ -43,7 +43,7 @@ func init() {
 			}
 
 			db := m.(*metadata.DB)
-			sb := make(map[string]sandbox.Service)
+			sb := make(map[string]sandbox.Store)
 			for n, srv := range db.Sandboxes() {
 				sb[n] = newLocal(srv, ic.Events)
 			}
@@ -66,7 +66,7 @@ func newLocal(srv sandbox.Store, publisher events.Publisher) *local {
 	}
 }
 
-func (l *local) Start(ctx context.Context, createInfo *sandbox.CreateInfo) (*sandbox.Info, error) {
+func (l *local) Start(ctx context.Context, createInfo *sandbox.CreateOpts) (*sandbox.Info, error) {
 	info, err := l.Store.Start(ctx, createInfo)
 	if err != nil {
 		return nil, err

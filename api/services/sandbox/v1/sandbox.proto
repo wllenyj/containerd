@@ -17,7 +17,7 @@ service Sandbox {
 }
 
 service Store {
-	rpc Start(StartSandboxRequest) returns (StartSandboxResponse);
+	rpc Start(StartSandboxRequest) returns (InfoSandboxResponse);
 	rpc Stop(StopSandboxRequest) returns (StopSandboxResponse);
 	rpc Update(UpdateSandboxRequest) returns (UpdateSandboxResponse);
 	rpc Info(InfoSandboxRequest) returns (InfoSandboxResponse);
@@ -39,7 +39,7 @@ message StartSandboxRequest {
 }
 
 message StartSandboxResponse {
-	string id = 1;
+	google.protobuf.Any descriptor = 1 [(gogoproto.nullable) = false];
 }
 
 message StopSandboxRequest {
@@ -83,7 +83,7 @@ message StatusSandboxResponse {
 	uint32 pid = 2;
 	string state = 3;
 	string version = 4;
-	map<string, string> extra = 5;
+	map<string, google.protobuf.Any> extra = 5 [(gogoproto.nullable) = false];
 }
 
 message ListSandboxRequest {
@@ -108,5 +108,6 @@ message Info {
 	google.protobuf.Any runtime_spec = 3;
 	google.protobuf.Timestamp created_at = 4 [(gogoproto.stdtime) = true, (gogoproto.nullable) = false];
 	google.protobuf.Timestamp updated_at = 5 [(gogoproto.stdtime) = true, (gogoproto.nullable) = false];
-	map<string, string> annotations = 6;
+	map<string, google.protobuf.Any> extensions = 6 [(gogoproto.nullable) = false];
+	google.protobuf.Any descriptor = 7 [(gogoproto.nullable) = false];
 }

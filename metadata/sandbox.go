@@ -29,6 +29,7 @@ import (
 	"github.com/containerd/containerd/metadata/boltutil"
 	"github.com/containerd/containerd/namespaces"
 	api "github.com/containerd/containerd/sandbox"
+	"github.com/gogo/protobuf/proto"
 )
 
 type sandbox struct {
@@ -47,7 +48,7 @@ func newSandbox(db *DB, name string, srv api.Service) *sandbox {
 	}
 }
 
-func (s *sandbox) Start(ctx context.Context, create *api.CreateInfo) (*api.Info, error) {
+func (s *sandbox) Start(ctx context.Context, create *api.CreateOpts) (*api.Info, error) {
 	ns, err := namespaces.NamespaceRequired(ctx)
 	if err != nil {
 		return nil, err
@@ -58,8 +59,7 @@ func (s *sandbox) Start(ctx context.Context, create *api.CreateInfo) (*api.Info,
 	}
 
 	var (
-		now  = time.Now().UTC()
-		resp *api.Info
+		now = time.Now().UTC()
 	)
 
 	info := api.Info{
@@ -75,12 +75,12 @@ func (s *sandbox) Start(ctx context.Context, create *api.CreateInfo) (*api.Info,
 			return errdefs.ErrAlreadyExists
 		}
 
-		resp, err = s.srv.Start(ctx, create)
+		descriptor, err := s.srv.Start(ctx, create)
 		if err != nil {
 			return errors.Wrap(err, "failed to start sandbox")
 		}
 
-		info.Annotations = resp.Annotations
+		info.Descriptor = descriptor
 
 		bucket, err := createSandboxBucket(tx, ns, s.name, info.ID)
 		if err != nil {
@@ -96,7 +96,7 @@ func (s *sandbox) Start(ctx context.Context, create *api.CreateInfo) (*api.Info,
 		return nil, err
 	}
 
-	return resp, nil
+	return &info, nil
 }
 
 func (s *sandbox) Stop(ctx context.Context, id string) error {
@@ -108,7 +108,7 @@ func (s *sandbox) Stop(ctx context.Context, id string) error {
 	return s.srv.Stop(ctx, id)
 }
 
-func (s *sandbox) Update(ctx context.Context, createInfo *api.CreateInfo, fieldpaths ...string) error {
+func (s *sandbox) Update(ctx context.Context, createInfo *api.CreateOpts, fieldpaths ...string) error {
 	return errdefs.ErrNotImplemented
 }
 
@@ -232,8 +232,8 @@ func (s *sandbox) readInfo(parent *bbolt.Bucket, id []byte) (*api.Info, error) {
 		return nil, err
 	}
 
-	info.Annotations, err = boltutil.ReadAnnotations(bucket)
-	if err != nil {
+	descriptor := bucket.Get([]byte("descriptor"))
+	if err := proto.Unmarshal(descriptor, &info.Descriptor); err != nil {
 		return nil, err
 	}
 
@@ -271,7 +271,12 @@ func (s *sandbox) writeInfo(bucket *bbolt.Bucket, info *api.Info) error {
 		return err
 	}
 
-	if err := boltutil.WriteAnnotations(bucket, info.Annotations); err != nil {
+	descriptor, err := proto.Marshal(&info.Descriptor)
+	if err != nil {
+		return err
+	}
+
+	if err := bucket.Put([]byte("descriptor"), descriptor); err != nil {
 		return err
 	}
 

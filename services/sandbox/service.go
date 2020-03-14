@@ -20,8 +20,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/containerd/typeurl"
-	runtime "github.com/opencontainers/runtime-spec/specs-go"
 	"google.golang.org/grpc"
 
 	api "github.com/containerd/containerd/api/services/sandbox/v1"
@@ -65,25 +63,16 @@ type service struct {
 var _ api.StoreServer = &service{}
 
 func (s *service) Register(srv *grpc.Server) error {
-	api.RegisterSandboxServer(srv, s)
+	api.RegisterStoreServer(srv, s)
 	return nil
 }
 
-func (s *service) Start(ctx context.Context, req *api.StartSandboxRequest) (*api.StartSandboxResponse, error) {
+func (s *service) Start(ctx context.Context, req *api.StartSandboxRequest) (*api.InfoSandboxResponse, error) {
 	log.G(ctx).WithField("name", req.Name).WithField("sandbox_id", req.ID).Debug("start sandbox")
 
-	if req.RuntimeSpec == nil {
-		return nil, errdefs.ToGRPCf(errdefs.ErrInvalidArgument, "empty runtime spec")
-	}
-
-	specAny, err := typeurl.UnmarshalAny(req.RuntimeSpec)
+	spec, err := sandbox.AnyToSpec(req.RuntimeSpec)
 	if err != nil {
-		return nil, errdefs.ToGRPCf(errdefs.ErrInvalidArgument, "failed to unmarshal spec: %v", err)
-	}
-
-	spec, ok := specAny.(*runtime.Spec)
-	if !ok {
-		return nil, errdefs.ToGRPCf(errdefs.ErrInvalidArgument, "invalid runtime spec structure: %T", specAny)
+		return nil, errdefs.ToGRPC(err)
 	}
 
 	svc, err := s.find(req.Name)
@@ -91,7 +80,7 @@ func (s *service) Start(ctx context.Context, req *api.StartSandboxRequest) (*api
 		return nil, err
 	}
 
-	createInfo := sandbox.CreateInfo{
+	createInfo := sandbox.CreateOpts{
 		ID:          req.ID,
 		RuntimeSpec: spec,
 		Labels:      req.Labels,
@@ -103,8 +92,15 @@ func (s *service) Start(ctx context.Context, req *api.StartSandboxRequest) (*api
 		return nil, errdefs.ToGRPCf(err, "failed to start sandbox")
 	}
 
-	return &api.StartSandboxResponse{
-		ID: info.ID,
+	return &api.InfoSandboxResponse{
+		Info: &api.Info{
+			ID:          info.ID,
+			Labels:      info.Labels,
+			CreatedAt:   info.CreatedAt,
+			UpdatedAt:   info.UpdatedAt,
+			Extensions:  info.Extensions,
+			Descriptor_: info.Descriptor,
+		},
 	}, nil
 }
 
@@ -131,7 +127,7 @@ func (s *service) Update(ctx context.Context, req *api.UpdateSandboxRequest) (*a
 		return nil, err
 	}
 
-	createInfo := sandbox.CreateInfo{
+	createInfo := sandbox.CreateOpts{
 		ID:          req.ID,
 		RuntimeSpec: nil,
 		Labels:      req.Labels,
@@ -139,14 +135,9 @@ func (s *service) Update(ctx context.Context, req *api.UpdateSandboxRequest) (*a
 	}
 
 	if req.RuntimeSpec != nil {
-		specAny, err := typeurl.UnmarshalAny(req.RuntimeSpec)
+		spec, err := sandbox.AnyToSpec(req.RuntimeSpec)
 		if err != nil {
-			return nil, errdefs.ToGRPCf(errdefs.ErrInvalidArgument, "failed to unmarshal spec: %v", err)
-		}
-
-		spec, ok := specAny.(*runtime.Spec)
-		if !ok {
-			return nil, errdefs.ToGRPCf(errdefs.ErrInvalidArgument, "invalid runtime spec structure: %T", specAny)
+			return nil, err
 		}
 
 		createInfo.RuntimeSpec = spec
@@ -172,7 +163,7 @@ func (s *service) Info(ctx context.Context, req *api.InfoSandboxRequest) (*api.I
 		return nil, errdefs.ToGRPCf(err, "failed to get sandbox %q status", req.ID)
 	}
 
-	spec, err := typeurl.MarshalAny(info.RuntimeSpec)
+	spec, err := sandbox.SpecToAny(info.RuntimeSpec)
 	if err != nil {
 		return nil, errdefs.ToGRPC(err)
 	}
@@ -184,7 +175,6 @@ func (s *service) Info(ctx context.Context, req *api.InfoSandboxRequest) (*api.I
 			RuntimeSpec: spec,
 			CreatedAt:   info.CreatedAt,
 			UpdatedAt:   info.UpdatedAt,
-			Annotations: info.Annotations,
 		},
 	}, nil
 }
@@ -236,10 +226,11 @@ func (s *service) List(ctx context.Context, req *api.ListSandboxRequest) (*api.L
 			Labels:      item.Labels,
 			CreatedAt:   item.CreatedAt,
 			UpdatedAt:   item.UpdatedAt,
-			Annotations: item.Annotations,
+			Descriptor_: item.Descriptor,
+			Extensions:  item.Extensions,
 		}
 
-		info.RuntimeSpec, err = typeurl.MarshalAny(item.RuntimeSpec)
+		info.RuntimeSpec, err = sandbox.SpecToAny(item.RuntimeSpec)
 		if err != nil {
 			return nil, errdefs.ToGRPC(err)
 		}

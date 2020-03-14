@@ -24,7 +24,46 @@ import (
 	runtime "github.com/opencontainers/runtime-spec/specs-go"
 )
 
-type CreateInfo struct {
+const DescriptorExtensionName = "io.containerd.ext/sandbox/descriptor"
+
+// Descriptor is an implementation agnostic connection handle returned from `Start` routine.
+// This object should contain connection information to be passed to shim implementation, so
+// they can communicate with sandboxes (for instance - socket path, API address, ports, etc).
+// When running a container (but after starting a sandbox), this descriptor can be passed along
+// with other container configuration via `containerd.WithSandboxID` and `containerd.WithSandboxDescriptor`.
+type Descriptor = types.Any
+
+// Service interface to be implemented by sandbox controllers (as proxy plugins)
+type Service interface {
+	// Start creates and runs a new sandbox instance.
+	// Clients may configure sandbox environment via runtime spec, labels, and extensions.
+	// Returned `Descriptor` represents an implementation specific connection object that
+	// will be passed to a runtime for communcating with sandbox instance.
+	Start(ctx context.Context, info *CreateOpts) (Descriptor, error)
+	// Stop stops a sandbox instance identified by id.
+	Stop(ctx context.Context, id string) error
+	// Update changes configuration of already running sandbox instance.
+	Update(ctx context.Context, info *CreateOpts, fieldpaths ...string) error
+	// Status returns a runtime status of a sandbox status identified by id.
+	Status(ctx context.Context, id string) (Status, error)
+	// Delete completely deletes sandbox instance from metadata store.
+	Delete(ctx context.Context, id string) error
+}
+
+// Store defines metadata storage and sandbox API interface for containerd clients.
+// metadata packages proxies client calls to a proxy plugins that implement `Service` interface.
+type Store interface {
+	Start(ctx context.Context, info *CreateOpts) (*Info, error)
+	Stop(ctx context.Context, id string) error
+	Update(ctx context.Context, info *CreateOpts, fieldpaths ...string) error
+	Status(ctx context.Context, id string) (Status, error)
+	Info(ctx context.Context, id string) (*Info, error)
+	List(ctx context.Context, filter ...string) ([]*Info, error)
+	Delete(ctx context.Context, id string) error
+}
+
+// CreateOpts represents sandbox creation parameters
+type CreateOpts struct {
 	// ID uniquely identifies the sandbox ID
 	ID string
 	// RuntimeSpec is the configuration to use for the sandbox
@@ -35,7 +74,7 @@ type CreateInfo struct {
 	Extensions map[string]types.Any
 }
 
-// State is current state of a sandbox (reported by Status call)
+// State is current state of a sandbox (reported by `Status` call)
 type State string
 
 const (
@@ -46,7 +85,7 @@ const (
 	StateStopped  State = "stopped"
 )
 
-// Status is a runtime info of a sandbox
+// Status is a structure describing current sandbox instance status
 type Status struct {
 	// ID is a sandbox identifier
 	ID string
@@ -57,9 +96,10 @@ type Status struct {
 	// Version represents sandbox version
 	Version string
 	// Extra is additional information that might be included by sandbox implementations
-	Extra map[string]string
+	Extra map[string]types.Any
 }
 
+// Info describes a sandbox instance
 type Info struct {
 	// ID uniquely identifies the sandbox ID
 	ID string
@@ -71,28 +111,8 @@ type Info struct {
 	CreatedAt time.Time
 	// UpdatedAt is the time at which the sandbox was updated.
 	UpdatedAt time.Time
-	// Annotations is extra information added by implementations during sandbox creation
-	Annotations map[string]string
+	// Descriptor is an object that describes how to communicate with a sandbox instance from a shim
+	Descriptor Descriptor
 	// Extensions stores client-specified metadata
 	Extensions map[string]types.Any
-}
-
-// Service interface to be used by sandbox implementations
-type Service interface {
-	Start(ctx context.Context, info *CreateInfo) (*Info, error)
-	Stop(ctx context.Context, id string) error
-	Update(ctx context.Context, info *CreateInfo, fieldpaths ...string) error
-	Status(ctx context.Context, id string) (Status, error)
-	Delete(ctx context.Context, id string) error
-}
-
-// Store defines metadata storage and client interface for sandbox API
-type Store interface {
-	Start(ctx context.Context, info *CreateInfo) (*Info, error)
-	Stop(ctx context.Context, id string) error
-	Update(ctx context.Context, info *CreateInfo, fieldpaths ...string) error
-	Status(ctx context.Context, id string) (Status, error)
-	Info(ctx context.Context, id string) (*Info, error)
-	List(ctx context.Context, filter ...string) ([]*Info, error)
-	Delete(ctx context.Context, id string) error
 }
