@@ -1,0 +1,112 @@
+syntax = "proto3";
+
+package containerd.services.sandbox.v1;
+
+import weak "gogoproto/gogo.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/containerd/containerd/api/services/sandbox/v1;sandbox";
+
+service Sandbox {
+	rpc Start(StartSandboxRequest) returns (StartSandboxResponse);
+	rpc Stop(StopSandboxRequest) returns (StopSandboxResponse);
+	rpc Update(UpdateSandboxRequest) returns (UpdateSandboxResponse);
+	rpc Status(StatusSandboxRequest) returns (StatusSandboxResponse);
+	rpc Delete(DeleteSandboxRequest) returns (DeleteSandboxResponse);
+}
+
+service Store {
+	rpc Start(StartSandboxRequest) returns (StartSandboxResponse);
+	rpc Stop(StopSandboxRequest) returns (StopSandboxResponse);
+	rpc Update(UpdateSandboxRequest) returns (UpdateSandboxResponse);
+	rpc Info(InfoSandboxRequest) returns (InfoSandboxResponse);
+	rpc Status(StatusSandboxRequest) returns (StatusSandboxResponse);
+	rpc List(ListSandboxRequest) returns (ListSandboxResponse);
+	rpc Delete(DeleteSandboxRequest) returns (DeleteSandboxResponse);
+}
+
+message StartSandboxRequest {
+	string name = 1;
+	string id = 2;
+	// Labels are extra configuration parameters needed to create a sandbox
+	map<string, string> labels  = 3;
+	// Runtime spec to be used when creating a sandbox.
+	google.protobuf.Any runtime_spec = 4;
+	// Extensions allow clients to provide zero or more blobs that are directly
+	// associated with the sandbox.
+	map<string, google.protobuf.Any> extensions = 5 [(gogoproto.nullable) = false];
+}
+
+message StartSandboxResponse {
+	string id = 1;
+}
+
+message StopSandboxRequest {
+	string name = 1;
+	string id = 2;
+}
+
+message StopSandboxResponse {}
+
+message UpdateSandboxRequest {
+	string name = 1;
+	string id = 2;
+	repeated string fields = 3;
+	// Labels are extra configuration parameters needed to create a sandbox
+	map<string, string> labels  = 4;
+	// Runtime spec to be used when creating a sandbox.
+	google.protobuf.Any runtime_spec = 5;
+	// Extensions allow clients to provide zero or more blobs that are directly
+	// associated with the sandbox.
+	map<string, google.protobuf.Any> extensions = 6 [(gogoproto.nullable) = false];
+}
+
+message UpdateSandboxResponse {}
+
+message InfoSandboxRequest {
+	string name = 1;
+	string id = 2;
+}
+
+message InfoSandboxResponse {
+	Info info = 1;
+}
+
+message StatusSandboxRequest {
+	string name = 1;
+	string id = 2;
+}
+
+message StatusSandboxResponse {
+	string id = 1;
+	uint32 pid = 2;
+	string state = 3;
+	string version = 4;
+	map<string, string> extra = 5;
+}
+
+message ListSandboxRequest {
+	string name = 1;
+	repeated string filters = 2;
+}
+
+message ListSandboxResponse {
+	repeated Info info = 1;
+}
+
+message DeleteSandboxRequest {
+	string name = 1;
+	string id = 2;
+}
+
+message DeleteSandboxResponse {}
+
+message Info {
+	string id = 1;
+	map<string, string> labels  = 2;
+	google.protobuf.Any runtime_spec = 3;
+	google.protobuf.Timestamp created_at = 4 [(gogoproto.stdtime) = true, (gogoproto.nullable) = false];
+	google.protobuf.Timestamp updated_at = 5 [(gogoproto.stdtime) = true, (gogoproto.nullable) = false];
+	map<string, string> annotations = 6;
+}
