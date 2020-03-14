@@ -19,17 +19,18 @@ package metadata
 import (
 	"testing"
 
-	"github.com/containerd/containerd/errdefs"
-	"github.com/containerd/containerd/leases"
 	"github.com/pkg/errors"
 	bolt "go.etcd.io/bbolt"
+
+	"github.com/containerd/containerd/errdefs"
+	"github.com/containerd/containerd/leases"
 )
 
 func TestLeases(t *testing.T) {
 	ctx, db, cancel := testEnv(t)
 	defer cancel()
 
-	lm := NewLeaseManager(NewDB(db, nil, nil))
+	lm := NewLeaseManager(NewDB(db, nil, nil, nil))
 
 	testCases := []struct {
 		ID        string
@@ -109,7 +110,7 @@ func TestLeasesList(t *testing.T) {
 	ctx, db, cancel := testEnv(t)
 	defer cancel()
 
-	lm := NewLeaseManager(NewDB(db, nil, nil))
+	lm := NewLeaseManager(NewDB(db, nil, nil, nil))
 
 	testset := [][]leases.Opt{
 		{
@@ -253,7 +254,7 @@ func TestLeaseResource(t *testing.T) {
 	ctx, db, cancel := testEnv(t)
 	defer cancel()
 
-	lm := NewLeaseManager(NewDB(db, nil, nil))
+	lm := NewLeaseManager(NewDB(db, nil, nil, nil))
 
 	var (
 		leaseID = "l1"

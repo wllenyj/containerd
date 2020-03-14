@@ -101,17 +101,30 @@
 //        │        ├──expireat : <binary time>   - Time to expire ingest
 //        │        └──expected : <digest>        - Expected commit digest
 //        └──leases
-//           ╘══*lease id*
-//              ├──createdat : <binary time>     - Created at
-//              ├──labels
-//              │  ╘══*key* : <string>           - Label value
-//              ├──snapshots
-//              │  ╘══*snapshotter*
-//              │     ╘══*snapshot key* : <nil>  - Snapshot reference
-//              ├──content
-//              │  ╘══*blob digest* : <nil>      - Content blob reference
-//              └──ingests
-//                 ╘══*ingest reference* : <nil> - Content ingest reference
+//        |  ╘══*lease id*
+//        |     ├──createdat : <binary time>     - Created at
+//        |     ├──labels
+//        |     │  ╘══*key* : <string>           - Label value
+//        |     ├──snapshots
+//        |     │  ╘══*snapshotter*
+//        |     │     ╘══*snapshot key* : <nil>  - Snapshot reference
+//        |     ├──content
+//        |     │  ╘══*blob digest* : <nil>      - Content blob reference
+//        |     └──ingests
+//        |        ╘══*ingest reference* : <nil> - Content ingest reference
+//        |
+//        |──sandbox
+//        │  ╘══*proxy name*
+//        │     ╘══*sandbox id*
+//        │        ├──runtime_spec : <json>      - JSON serialized runtime spec
+//        │        ├──createdat : <binary time>  - Created at
+//        │        ├──updatedat : <binary time>  - Updated at
+//        │        └──labels
+//        │        |  ╘══*key* : <string>        - Label value
+//        │        └──annotations
+//        │        |  ╘══*key* : <string>        - Annotation value
+//        │        ├──extensions
+//        │           ╘══*key* : <binary>        - Proto marshaled extension
 package metadata
 
 import (
@@ -130,6 +143,7 @@ var (
 	bucketKeyObjectBlob       = []byte("blob")       // stores content links
 	bucketKeyObjectIngests    = []byte("ingests")    // stores ingest objects
 	bucketKeyObjectLeases     = []byte("leases")     // stores leases
+	bucketKeyObjectSandboxes  = []byte("sandboxes")  // stores sandboxes metadata
 
 	bucketKeyDigest      = []byte("digest")
 	bucketKeyMediaType   = []byte("mediatype")
@@ -269,4 +283,33 @@ func createIngestBucket(tx *bolt.Tx, namespace, ref string) (*bolt.Bucket, error
 
 func getIngestBucket(tx *bolt.Tx, namespace, ref string) *bolt.Bucket {
 	return getBucket(tx, bucketKeyVersion, []byte(namespace), bucketKeyObjectContent, bucketKeyObjectIngests, []byte(ref))
+}
+
+func createSandboxBucket(tx *bolt.Tx, namespace, name string, sandboxID string) (*bolt.Bucket, error) {
+	return createBucketIfNotExists(
+		tx,
+		[]byte(namespace),
+		bucketKeyObjectSandboxes,
+		[]byte(name),
+		[]byte(sandboxID),
+	)
+}
+
+func getSandboxBuckets(tx *bolt.Tx, namespace, name string) *bolt.Bucket {
+	return getBucket(
+		tx,
+		[]byte(namespace),
+		bucketKeyObjectSandboxes,
+		[]byte(name),
+	)
+}
+
+func getSandboxBucket(tx *bolt.Tx, namespace, name string, sandboxID string) *bolt.Bucket {
+	return getBucket(
+		tx,
+		[]byte(namespace),
+		bucketKeyObjectSandboxes,
+		[]byte(name),
+		[]byte(sandboxID),
+	)
 }

@@ -22,6 +22,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
+	"github.com/gogo/protobuf/types"
+	"github.com/pkg/errors"
+	bolt "go.etcd.io/bbolt"
+
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/filters"
@@ -29,10 +34,6 @@ import (
 	"github.com/containerd/containerd/labels"
 	"github.com/containerd/containerd/metadata/boltutil"
 	"github.com/containerd/containerd/namespaces"
-	"github.com/gogo/protobuf/proto"
-	"github.com/gogo/protobuf/types"
-	"github.com/pkg/errors"
-	bolt "go.etcd.io/bbolt"
 )
 
 type containerStore struct {
@@ -357,22 +358,8 @@ func readContainer(container *containers.Container, bkt *bolt.Bucket) error {
 		case string(bucketKeySnapshotter):
 			container.Snapshotter = string(v)
 		case string(bucketKeyExtensions):
-			ebkt := bkt.Bucket(bucketKeyExtensions)
-			if ebkt == nil {
-				return nil
-			}
-
-			extensions := make(map[string]types.Any)
-			if err := ebkt.ForEach(func(k, v []byte) error {
-				var a types.Any
-				if err := proto.Unmarshal(v, &a); err != nil {
-					return err
-				}
-
-				extensions[string(k)] = a
-				return nil
-			}); err != nil {
-
+			extensions, err := boltutil.ReadExtensions(bkt)
+			if err != nil {
 				return err
 			}
 
@@ -424,22 +411,8 @@ func writeContainer(bkt *bolt.Bucket, container *containers.Container) error {
 		return err
 	}
 
-	if len(container.Extensions) > 0 {
-		ebkt, err := bkt.CreateBucketIfNotExists(bucketKeyExtensions)
-		if err != nil {
-			return err
-		}
-
-		for name, ext := range container.Extensions {
-			p, err := proto.Marshal(&ext)
-			if err != nil {
-				return err
-			}
-
-			if err := ebkt.Put([]byte(name), p); err != nil {
-				return err
-			}
-		}
+	if err := boltutil.WriteExtensions(bkt, container.Extensions); err != nil {
+		return err
 	}
 
 	if container.Runtime.Options != nil {

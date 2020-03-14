@@ -24,12 +24,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pkg/errors"
+	bolt "go.etcd.io/bbolt"
+
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/gc"
 	"github.com/containerd/containerd/log"
+	sb "github.com/containerd/containerd/sandbox"
 	"github.com/containerd/containerd/snapshots"
-	"github.com/pkg/errors"
-	bolt "go.etcd.io/bbolt"
 )
 
 const (
@@ -68,6 +70,7 @@ type dbOptions struct {
 type DB struct {
 	db *bolt.DB
 	ss map[string]*snapshotter
+	sb map[string]*sandbox
 	cs *contentStore
 
 	// wlock is used to protect access to the data structures during garbage
@@ -98,10 +101,17 @@ type DB struct {
 
 // NewDB creates a new metadata database using the provided
 // bolt database, content store, and snapshotters.
-func NewDB(db *bolt.DB, cs content.Store, ss map[string]snapshots.Snapshotter, opts ...DBOpt) *DB {
+func NewDB(
+	db *bolt.DB,
+	cs content.Store,
+	ss map[string]snapshots.Snapshotter,
+	sb map[string]sb.Service,
+	opts ...DBOpt,
+) *DB {
 	m := &DB{
 		db:      db,
 		ss:      make(map[string]*snapshotter, len(ss)),
+		sb:      make(map[string]*sandbox, len(sb)),
 		dirtySS: map[string]struct{}{},
 		dbopts: dbOptions{
 			shared: true,
@@ -116,6 +126,9 @@ func NewDB(db *bolt.DB, cs content.Store, ss map[string]snapshots.Snapshotter, o
 	m.cs = newContentStore(m, m.dbopts.shared, cs)
 	for name, sn := range ss {
 		m.ss[name] = newSnapshotter(m, name, sn)
+	}
+	for name, srv := range sb {
+		m.sb[name] = newSandbox(m, name, srv)
 	}
 
 	return m
@@ -231,6 +244,14 @@ func (m *DB) Snapshotters() map[string]snapshots.Snapshotter {
 		ss[n] = sn
 	}
 	return ss
+}
+
+func (m *DB) Sandboxes() map[string]sb.Store {
+	out := make(map[string]sb.Store, len(m.sb))
+	for n, srv := range m.sb {
+		out[n] = srv
+	}
+	return out
 }
 
 // View runs a readonly transaction on the metadata store.

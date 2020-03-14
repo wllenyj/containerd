@@ -30,6 +30,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gogo/protobuf/types"
+	digest "github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/pkg/errors"
+	bolt "go.etcd.io/bbolt"
+
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/content/local"
@@ -39,13 +45,9 @@ import (
 	"github.com/containerd/containerd/leases"
 	"github.com/containerd/containerd/log/logtest"
 	"github.com/containerd/containerd/namespaces"
+	sb "github.com/containerd/containerd/sandbox"
 	"github.com/containerd/containerd/snapshots"
 	"github.com/containerd/containerd/snapshots/native"
-	"github.com/gogo/protobuf/types"
-	digest "github.com/opencontainers/go-digest"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
-	bolt "go.etcd.io/bbolt"
 )
 
 type testOptions struct {
@@ -106,7 +108,7 @@ func testDB(t *testing.T, opt ...testOpt) (context.Context, *DB, func()) {
 		t.Fatal(err)
 	}
 
-	db := NewDB(bdb, cs, snapshotters)
+	db := NewDB(bdb, cs, snapshotters, map[string]sb.Service{})
 	if err := db.Init(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +126,7 @@ func TestInit(t *testing.T) {
 	ctx, db, cancel := testEnv(t)
 	defer cancel()
 
-	if err := NewDB(db, nil, nil).Init(ctx); err != nil {
+	if err := NewDB(db, nil, nil, nil).Init(ctx); err != nil {
 		t.Fatal(err)
 	}
 
@@ -784,7 +786,7 @@ func newStores(t testing.TB) (*DB, content.Store, snapshots.Snapshotter, func())
 		t.Fatal(err)
 	}
 
-	mdb := NewDB(db, lcs, map[string]snapshots.Snapshotter{"native": nsn})
+	mdb := NewDB(db, lcs, map[string]snapshots.Snapshotter{"native": nsn}, nil)
 
 	return mdb, mdb.ContentStore(), mdb.Snapshotter("native"), func() {
 		os.RemoveAll(td)
