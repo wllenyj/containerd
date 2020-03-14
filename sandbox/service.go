@@ -35,7 +35,7 @@ type CreateInfo struct {
 	Extensions map[string]types.Any
 }
 
-// State is a sandbox state
+// State is current state of a sandbox (reported by Status call)
 type State string
 
 const (
@@ -86,7 +86,7 @@ type Service interface {
 	Delete(ctx context.Context, id string) error
 }
 
-// Store defines metadata storage to be used by containerd and client interface for sandbox API
+// Store defines metadata storage and client interface for sandbox API
 type Store interface {
 	Start(ctx context.Context, info *CreateInfo) (*Info, error)
 	Stop(ctx context.Context, id string) error

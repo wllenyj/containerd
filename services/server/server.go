@@ -29,7 +29,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/containerd/ttrpc"
+	metrics "github.com/docker/go-metrics"
+	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
+	"github.com/pkg/errors"
+	bolt "go.etcd.io/bbolt"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/credentials"
+
 	csapi "github.com/containerd/containerd/api/services/content/v1"
+	"github.com/containerd/containerd/api/services/sandbox/v1"
 	ssapi "github.com/containerd/containerd/api/services/snapshots/v1"
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/content/local"
@@ -42,18 +52,12 @@ import (
 	"github.com/containerd/containerd/pkg/dialer"
 	"github.com/containerd/containerd/pkg/timeout"
 	"github.com/containerd/containerd/plugin"
+	sb "github.com/containerd/containerd/sandbox"
+	sbproxy "github.com/containerd/containerd/sandbox/proxy"
 	srvconfig "github.com/containerd/containerd/services/server/config"
 	"github.com/containerd/containerd/snapshots"
 	ssproxy "github.com/containerd/containerd/snapshots/proxy"
 	"github.com/containerd/containerd/sys"
-	"github.com/containerd/ttrpc"
-	metrics "github.com/docker/go-metrics"
-	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
-	"github.com/pkg/errors"
-	bolt "go.etcd.io/bbolt"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/backoff"
-	"google.golang.org/grpc/credentials"
 )
 
 // CreateTopLevelDirectories creates the top-level root and state directories.
@@ -327,6 +331,7 @@ func LoadPlugins(ctx context.Context, config *srvconfig.Config) ([]*plugin.Regis
 		Requires: []plugin.Type{
 			plugin.ContentPlugin,
 			plugin.SnapshotPlugin,
+			plugin.SandboxPlugin,
 		},
 		Config: &srvconfig.BoltConfig{
 			ContentSharingPolicy: srvconfig.SharingPolicyShared,
@@ -358,6 +363,19 @@ func LoadPlugins(ctx context.Context, config *srvconfig.Config) ([]*plugin.Regis
 				snapshotters[name] = sn.(snapshots.Snapshotter)
 			}
 
+			sandboxesRaw, err := ic.GetByType(plugin.SandboxPlugin)
+			if err != nil {
+				return nil, err
+			}
+			sandboxes := make(map[string]sb.Service)
+			for name, srv := range sandboxesRaw {
+				inst, err := srv.Instance()
+				if err != nil {
+					return nil, err
+				}
+				sandboxes[name] = inst.(sb.Service)
+			}
+
 			shared := true
 			ic.Meta.Exports["policy"] = srvconfig.SharingPolicyShared
 			if cfg, ok := ic.Config.(*srvconfig.BoltConfig); ok {
@@ -386,7 +404,7 @@ func LoadPlugins(ctx context.Context, config *srvconfig.Config) ([]*plugin.Regis
 			if !shared {
 				dbopts = append(dbopts, metadata.WithPolicyIsolated)
 			}
-			mdb := metadata.NewDB(db, cs.(content.Store), snapshotters, dbopts...)
+			mdb := metadata.NewDB(db, cs.(content.Store), snapshotters, sandboxes, dbopts...)
 			if err := mdb.Init(ic.Context); err != nil {
 				return nil, err
 			}
@@ -416,6 +434,13 @@ func LoadPlugins(ctx context.Context, config *srvconfig.Config) ([]*plugin.Regis
 			f = func(conn *grpc.ClientConn) interface{} {
 				return csproxy.NewContentStore(csapi.NewContentClient(conn))
 			}
+
+		case string(plugin.SandboxPlugin), "sandbox":
+			t = plugin.SandboxPlugin
+			f = func(conn *grpc.ClientConn) interface{} {
+				return sbproxy.NewClient(sandbox.NewSandboxClient(conn), name)
+			}
+
 		default:
 			log.G(ctx).WithField("type", pp.Type).Warn("unknown proxy plugin type")
 		}
