@@ -73,6 +73,8 @@ const (
 	MetadataPlugin Type = "io.containerd.metadata.v1"
 	// ContentPlugin implements a content store
 	ContentPlugin Type = "io.containerd.content.v1"
+	// SandboxPlugin implements a sandbox controller
+	SandboxPlugin Type = "io.containerd.sandbox.v1"
 	// GCPlugin implements garbage collection policy
 	GCPlugin Type = "io.containerd.gc.v1"
 )
