@@ -28,12 +28,12 @@ import (
 // proxyClient is a client used by containerd to communicate with a sandbox proxy plugin
 type proxyClient struct {
 	name   string
-	client api.SandboxClient
+	client api.ControllerClient
 }
 
-var _ sandbox.Service = &proxyClient{}
+var _ sandbox.Controller = &proxyClient{}
 
-func NewClient(client api.SandboxClient, name string) sandbox.Service {
+func NewClient(client api.ControllerClient, name string) sandbox.Controller {
 	return &proxyClient{client: client, name: name}
 }
 

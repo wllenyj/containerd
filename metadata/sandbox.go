@@ -33,16 +33,16 @@ import (
 )
 
 type sandbox struct {
-	srv  api.Service
+	ctrl api.Controller
 	name string
 	db   *DB
 }
 
 var _ api.Store = &sandbox{}
 
-func newSandbox(db *DB, name string, srv api.Service) *sandbox {
+func newSandbox(db *DB, name string, ctrl api.Controller) *sandbox {
 	return &sandbox{
-		srv:  srv,
+		ctrl: ctrl,
 		name: name,
 		db:   db,
 	}
@@ -75,7 +75,7 @@ func (s *sandbox) Start(ctx context.Context, create *api.CreateOpts) (*api.Info,
 			return errdefs.ErrAlreadyExists
 		}
 
-		descriptor, err := s.srv.Start(ctx, create)
+		descriptor, err := s.ctrl.Start(ctx, create)
 		if err != nil {
 			return errors.Wrap(err, "failed to start sandbox")
 		}
@@ -105,7 +105,7 @@ func (s *sandbox) Stop(ctx context.Context, id string) error {
 		return err
 	}
 
-	return s.srv.Stop(ctx, id)
+	return s.ctrl.Stop(ctx, id)
 }
 
 func (s *sandbox) Update(ctx context.Context, createInfo *api.CreateOpts, fieldpaths ...string) error {
@@ -118,7 +118,7 @@ func (s *sandbox) Status(ctx context.Context, id string) (api.Status, error) {
 		return api.Status{}, err
 	}
 
-	return s.srv.Status(ctx, id)
+	return s.ctrl.Status(ctx, id)
 }
 
 func (s *sandbox) Info(ctx context.Context, id string) (*api.Info, error) {
@@ -202,7 +202,7 @@ func (s *sandbox) Delete(ctx context.Context, id string) error {
 			return errors.Wrapf(err, "failed to delete bucket %q", id)
 		}
 
-		if err := s.srv.Delete(ctx, id); err != nil {
+		if err := s.ctrl.Delete(ctx, id); err != nil {
 			return errors.Wrapf(err, "failed to delete sandbox %q", id)
 		}
 

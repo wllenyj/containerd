@@ -108,7 +108,7 @@ func testDB(t *testing.T, opt ...testOpt) (context.Context, *DB, func()) {
 		t.Fatal(err)
 	}
 
-	db := NewDB(bdb, cs, snapshotters, map[string]sb.Service{})
+	db := NewDB(bdb, cs, snapshotters, map[string]sb.Controller{})
 	if err := db.Init(ctx); err != nil {
 		t.Fatal(err)
 	}

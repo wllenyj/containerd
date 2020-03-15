@@ -8,7 +8,7 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/containerd/containerd/api/services/sandbox/v1;sandbox";
 
-service Sandbox {
+service Controller {
 	rpc Start(StartSandboxRequest) returns (StartSandboxResponse);
 	rpc Stop(StopSandboxRequest) returns (StopSandboxResponse);
 	rpc Update(UpdateSandboxRequest) returns (UpdateSandboxResponse);

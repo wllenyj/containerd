@@ -33,8 +33,8 @@ const DescriptorExtensionName = "io.containerd.ext/sandbox/descriptor"
 // with other container configuration via `containerd.WithSandboxID` and `containerd.WithSandboxDescriptor`.
 type Descriptor = types.Any
 
-// Service interface to be implemented by sandbox controllers (as proxy plugins)
-type Service interface {
+// Controller interface to be implemented by sandbox proxy plugins to manage sandbox instances.
+type Controller interface {
 	// Start creates and runs a new sandbox instance.
 	// Clients may configure sandbox environment via runtime spec, labels, and extensions.
 	// Returned `Descriptor` represents an implementation specific connection object that
@@ -51,7 +51,7 @@ type Service interface {
 }
 
 // Store defines metadata storage and sandbox API interface for containerd clients.
-// metadata packages proxies client calls to a proxy plugins that implement `Service` interface.
+// metadata packages proxies client calls to a proxy plugins that implement `Controller` interface.
 type Store interface {
 	Start(ctx context.Context, info *CreateOpts) (*Info, error)
 	Stop(ctx context.Context, id string) error

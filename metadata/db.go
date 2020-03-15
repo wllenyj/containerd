@@ -105,7 +105,7 @@ func NewDB(
 	db *bolt.DB,
 	cs content.Store,
 	ss map[string]snapshots.Snapshotter,
-	sb map[string]sb.Service,
+	sb map[string]sb.Controller,
 	opts ...DBOpt,
 ) *DB {
 	m := &DB{

@@ -30,14 +30,14 @@ import (
 )
 
 type proxyServer struct {
-	srv sandbox.Service
+	ctrl sandbox.Controller
 }
 
-func FromService(service sandbox.Service) api.SandboxServer {
-	return &proxyServer{srv: service}
+func FromService(service sandbox.Controller) api.ControllerServer {
+	return &proxyServer{ctrl: service}
 }
 
-var _ api.SandboxServer = &proxyServer{}
+var _ api.ControllerServer = &proxyServer{}
 
 func (p *proxyServer) Start(ctx context.Context, req *api.StartSandboxRequest) (*api.StartSandboxResponse, error) {
 	spec, err := anyToSpec(req.RuntimeSpec)
@@ -52,7 +52,7 @@ func (p *proxyServer) Start(ctx context.Context, req *api.StartSandboxRequest) (
 		Extensions:  req.Extensions,
 	}
 
-	info, err := p.srv.Start(ctx, &createInfo)
+	info, err := p.ctrl.Start(ctx, &createInfo)
 	if err != nil {
 		return nil, errdefs.ToGRPC(err)
 	}
@@ -63,7 +63,7 @@ func (p *proxyServer) Start(ctx context.Context, req *api.StartSandboxRequest) (
 }
 
 func (p *proxyServer) Stop(ctx context.Context, req *api.StopSandboxRequest) (*api.StopSandboxResponse, error) {
-	if err := p.srv.Stop(ctx, req.ID); err != nil {
+	if err := p.ctrl.Stop(ctx, req.ID); err != nil {
 		return nil, errdefs.ToGRPC(err)
 	}
 
@@ -86,7 +86,7 @@ func (p *proxyServer) Update(ctx context.Context, req *api.UpdateSandboxRequest)
 		info.RuntimeSpec = spec
 	}
 
-	err := p.srv.Update(ctx, info, req.Fields...)
+	err := p.ctrl.Update(ctx, info, req.Fields...)
 	if err != nil {
 		return nil, errdefs.ToGRPC(err)
 	}
@@ -95,7 +95,7 @@ func (p *proxyServer) Update(ctx context.Context, req *api.UpdateSandboxRequest)
 }
 
 func (p *proxyServer) Status(ctx context.Context, req *api.StatusSandboxRequest) (*api.StatusSandboxResponse, error) {
-	status, err := p.srv.Status(ctx, req.ID)
+	status, err := p.ctrl.Status(ctx, req.ID)
 	if err != nil {
 		return nil, errdefs.ToGRPC(err)
 	}
@@ -110,7 +110,7 @@ func (p *proxyServer) Status(ctx context.Context, req *api.StatusSandboxRequest)
 }
 
 func (p *proxyServer) Delete(ctx context.Context, req *api.DeleteSandboxRequest) (*api.DeleteSandboxResponse, error) {
-	if err := p.srv.Delete(ctx, req.ID); err != nil {
+	if err := p.ctrl.Delete(ctx, req.ID); err != nil {
 		return nil, errdefs.ToGRPC(err)
 	}
 

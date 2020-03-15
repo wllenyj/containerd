@@ -367,13 +367,13 @@ func LoadPlugins(ctx context.Context, config *srvconfig.Config) ([]*plugin.Regis
 			if err != nil {
 				return nil, err
 			}
-			sandboxes := make(map[string]sb.Service)
+			sandboxes := make(map[string]sb.Controller)
 			for name, srv := range sandboxesRaw {
 				inst, err := srv.Instance()
 				if err != nil {
 					return nil, err
 				}
-				sandboxes[name] = inst.(sb.Service)
+				sandboxes[name] = inst.(sb.Controller)
 			}
 
 			shared := true
@@ -438,7 +438,7 @@ func LoadPlugins(ctx context.Context, config *srvconfig.Config) ([]*plugin.Regis
 		case string(plugin.SandboxPlugin), "sandbox":
 			t = plugin.SandboxPlugin
 			f = func(conn *grpc.ClientConn) interface{} {
-				return sbproxy.NewClient(sandbox.NewSandboxClient(conn), name)
+				return sbproxy.NewClient(sandbox.NewControllerClient(conn), name)
 			}
 
 		default:
