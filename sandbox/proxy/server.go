@@ -40,16 +40,16 @@ func FromService(service sandbox.Controller) api.ControllerServer {
 var _ api.ControllerServer = &proxyServer{}
 
 func (p *proxyServer) Start(ctx context.Context, req *api.StartSandboxRequest) (*api.StartSandboxResponse, error) {
-	spec, err := anyToSpec(req.RuntimeSpec)
+	spec, err := anyToSpec(req.Spec)
 	if err != nil {
 		return nil, errdefs.ToGRPC(err)
 	}
 
 	createInfo := sandbox.CreateOpts{
-		ID:          req.ID,
-		RuntimeSpec: spec,
-		Labels:      req.Labels,
-		Extensions:  req.Extensions,
+		ID:         req.ID,
+		Spec:       spec,
+		Labels:     req.Labels,
+		Extensions: req.Extensions,
 	}
 
 	info, err := p.ctrl.Start(ctx, &createInfo)
@@ -77,13 +77,13 @@ func (p *proxyServer) Update(ctx context.Context, req *api.UpdateSandboxRequest)
 		Extensions: req.Extensions,
 	}
 
-	if req.RuntimeSpec != nil {
-		spec, err := anyToSpec(req.RuntimeSpec)
+	if req.Spec != nil {
+		spec, err := anyToSpec(req.Spec)
 		if err != nil {
 			return nil, errdefs.ToGRPC(err)
 		}
 
-		info.RuntimeSpec = spec
+		info.Spec = spec
 	}
 
 	err := p.ctrl.Update(ctx, info, req.Fields...)

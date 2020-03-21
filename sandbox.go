@@ -48,12 +48,12 @@ func (r *remoteSandboxClient) Start(ctx context.Context, createInfo *sandbox.Cre
 		Extensions: createInfo.Extensions,
 	}
 
-	specAny, err := sandbox.SpecToAny(createInfo.RuntimeSpec)
+	specAny, err := sandbox.SpecToAny(createInfo.Spec)
 	if err != nil {
 		return nil, err
 	}
 
-	req.RuntimeSpec = specAny
+	req.Spec = specAny
 
 	resp, err := r.client.Start(ctx, &req)
 	if err != nil {
@@ -69,7 +69,7 @@ func (r *remoteSandboxClient) Start(ctx context.Context, createInfo *sandbox.Cre
 		Extensions: resp.Info.Extensions,
 	}
 
-	info.RuntimeSpec, err = sandbox.AnyToSpec(resp.Info.RuntimeSpec)
+	info.Spec, err = sandbox.AnyToSpec(resp.Info.Spec)
 	if err != nil {
 		return nil, err
 	}
@@ -100,12 +100,12 @@ func (r *remoteSandboxClient) Update(ctx context.Context, info *sandbox.CreateOp
 		Extensions: info.Extensions,
 	}
 
-	spec, err := sandbox.SpecToAny(info.RuntimeSpec)
+	spec, err := sandbox.SpecToAny(info.Spec)
 	if err != nil {
 		return err
 	}
 
-	req.RuntimeSpec = spec
+	req.Spec = spec
 
 	if _, err := r.client.Update(ctx, &req); err != nil {
 		return errdefs.FromGRPC(err)
@@ -193,11 +193,11 @@ func (remoteSandboxClient) makeInfo(in *api.Info) (*sandbox.Info, error) {
 		Extensions: in.Extensions,
 	}
 
-	spec, err := sandbox.AnyToSpec(in.RuntimeSpec)
+	spec, err := sandbox.AnyToSpec(in.Spec)
 	if err != nil {
 		return nil, err
 	}
 
-	info.RuntimeSpec = spec
+	info.Spec = spec
 	return &info, nil
 }

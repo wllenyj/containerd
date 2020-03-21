@@ -33,6 +33,10 @@ const DescriptorExtensionName = "io.containerd.ext/sandbox/descriptor"
 // with other container configuration via `containerd.WithSandboxID` and `containerd.WithSandboxDescriptor`.
 type Descriptor = types.Any
 
+// Spec is a specification to use for creating sandbox instances.
+// TODO: this should be a "sandbox-spec" intead of "runtime-spec".
+type Spec = runtime.Spec
+
 // Controller interface to be implemented by sandbox proxy plugins to manage sandbox instances.
 type Controller interface {
 	// Start creates and runs a new sandbox instance.
@@ -64,10 +68,10 @@ type Store interface {
 
 // CreateOpts represents sandbox creation parameters
 type CreateOpts struct {
-	// ID uniquely identifies the sandbox ID
+	// ID uniquely identifies the sandbox within a controller (proxy plugin) and namespace.
 	ID string
-	// RuntimeSpec is the configuration to use for the sandbox
-	RuntimeSpec *runtime.Spec
+	// Spec is the configuration to use for the sandbox
+	Spec *Spec
 	// Labels are extra configuration parameters needed to create a sandbox
 	Labels map[string]string
 	// Extensions stores client-specified metadata
@@ -103,8 +107,8 @@ type Status struct {
 type Info struct {
 	// ID uniquely identifies the sandbox ID
 	ID string
-	// RuntimeSpec is the configuration to use for the sandbox
-	RuntimeSpec *runtime.Spec
+	// Spec is the configuration that was used to create this sandbox instance
+	Spec *Spec
 	// Labels are extra configuration parameters used as input to create a sandbox
 	Labels map[string]string
 	// CreatedAt is the time at which the sandbox was created.
@@ -113,6 +117,6 @@ type Info struct {
 	UpdatedAt time.Time
 	// Descriptor is an object that describes how to communicate with a sandbox instance from a shim
 	Descriptor Descriptor
-	// Extensions stores client-specified metadata
+	// Extensions store client-specified metadata
 	Extensions map[string]types.Any
 }

@@ -63,11 +63,11 @@ func (s *sandbox) Start(ctx context.Context, create *api.CreateOpts) (*api.Info,
 	)
 
 	info := api.Info{
-		ID:          create.ID,
-		RuntimeSpec: create.RuntimeSpec,
-		Labels:      create.Labels,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:        create.ID,
+		Spec:      create.Spec,
+		Labels:    create.Labels,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 
 	if err := update(ctx, s.db, func(tx *bbolt.Tx) error {
@@ -247,7 +247,7 @@ func (s *sandbox) readInfo(parent *bbolt.Bucket, id []byte) (*api.Info, error) {
 		if err := json.Unmarshal(specData, &runtimeSpec); err != nil {
 			return nil, errors.Wrap(err, "failed to unmarshal runtime spec")
 		}
-		info.RuntimeSpec = &runtimeSpec
+		info.Spec = &runtimeSpec
 	}
 
 	info.Extensions, err = boltutil.ReadExtensions(bucket)
@@ -284,7 +284,7 @@ func (s *sandbox) writeInfo(bucket *bbolt.Bucket, info *api.Info) error {
 		return err
 	}
 
-	spec, err := json.Marshal(info.RuntimeSpec)
+	spec, err := json.Marshal(info.Spec)
 	if err != nil {
 		return errors.Wrap(err, "failed to marshal runtime spec")
 	}

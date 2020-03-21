@@ -38,17 +38,17 @@ func NewClient(client api.ControllerClient, name string) sandbox.Controller {
 }
 
 func (p *proxyClient) Start(ctx context.Context, info *sandbox.CreateOpts) (sandbox.Descriptor, error) {
-	specAny, err := sandbox.SpecToAny(info.RuntimeSpec)
+	specAny, err := sandbox.SpecToAny(info.Spec)
 	if err != nil {
 		return sandbox.Descriptor{}, err
 	}
 
 	req := &api.StartSandboxRequest{
-		Name:        p.name,
-		ID:          info.ID,
-		Labels:      info.Labels,
-		RuntimeSpec: specAny,
-		Extensions:  info.Extensions,
+		Name:       p.name,
+		ID:         info.ID,
+		Labels:     info.Labels,
+		Spec:       specAny,
+		Extensions: info.Extensions,
 	}
 
 	resp, err := p.client.Start(ctx, req)
@@ -81,13 +81,13 @@ func (p *proxyClient) Update(ctx context.Context, info *sandbox.CreateOpts, fiel
 		Extensions: info.Extensions,
 	}
 
-	if info.RuntimeSpec != nil {
-		any, err := sandbox.SpecToAny(info.RuntimeSpec)
+	if info.Spec != nil {
+		any, err := sandbox.SpecToAny(info.Spec)
 		if err != nil {
 			return err
 		}
 
-		req.RuntimeSpec = any
+		req.Spec = any
 	}
 
 	_, err := p.client.Update(ctx, &req)

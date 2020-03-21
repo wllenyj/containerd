@@ -19,13 +19,12 @@ package sandbox
 import (
 	"github.com/containerd/typeurl"
 	"github.com/gogo/protobuf/types"
-	runtime "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 
 	"github.com/containerd/containerd/errdefs"
 )
 
-func SpecToAny(spec *runtime.Spec) (*types.Any, error) {
+func SpecToAny(spec *Spec) (*types.Any, error) {
 	any, err := typeurl.MarshalAny(spec)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to marshal runtime spec")
@@ -34,7 +33,7 @@ func SpecToAny(spec *runtime.Spec) (*types.Any, error) {
 	return any, nil
 }
 
-func AnyToSpec(any *types.Any) (*runtime.Spec, error) {
+func AnyToSpec(any *types.Any) (*Spec, error) {
 	if any == nil {
 		return nil, errors.Wrap(errdefs.ErrInvalidArgument, "empty runtime spec")
 	}
@@ -44,7 +43,7 @@ func AnyToSpec(any *types.Any) (*runtime.Spec, error) {
 		return nil, errors.Wrapf(errdefs.ErrInvalidArgument, "failed to unmarshal runtime spec: %v", err)
 	}
 
-	spec, ok := raw.(*runtime.Spec)
+	spec, ok := raw.(*Spec)
 	if !ok {
 		return nil, errors.Wrap(errdefs.ErrInvalidArgument, "unexpected runtime spec structure")
 	}

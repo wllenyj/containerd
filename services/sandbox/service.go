@@ -70,7 +70,7 @@ func (s *service) Register(srv *grpc.Server) error {
 func (s *service) Start(ctx context.Context, req *api.StartSandboxRequest) (*api.InfoSandboxResponse, error) {
 	log.G(ctx).WithField("name", req.Name).WithField("sandbox_id", req.ID).Debug("start sandbox")
 
-	spec, err := sandbox.AnyToSpec(req.RuntimeSpec)
+	spec, err := sandbox.AnyToSpec(req.Spec)
 	if err != nil {
 		return nil, errdefs.ToGRPC(err)
 	}
@@ -81,10 +81,10 @@ func (s *service) Start(ctx context.Context, req *api.StartSandboxRequest) (*api
 	}
 
 	createInfo := sandbox.CreateOpts{
-		ID:          req.ID,
-		RuntimeSpec: spec,
-		Labels:      req.Labels,
-		Extensions:  req.Extensions,
+		ID:         req.ID,
+		Spec:       spec,
+		Labels:     req.Labels,
+		Extensions: req.Extensions,
 	}
 
 	info, err := svc.Start(ctx, &createInfo)
@@ -128,19 +128,19 @@ func (s *service) Update(ctx context.Context, req *api.UpdateSandboxRequest) (*a
 	}
 
 	createInfo := sandbox.CreateOpts{
-		ID:          req.ID,
-		RuntimeSpec: nil,
-		Labels:      req.Labels,
-		Extensions:  req.Extensions,
+		ID:         req.ID,
+		Spec:       nil,
+		Labels:     req.Labels,
+		Extensions: req.Extensions,
 	}
 
-	if req.RuntimeSpec != nil {
-		spec, err := sandbox.AnyToSpec(req.RuntimeSpec)
+	if req.Spec != nil {
+		spec, err := sandbox.AnyToSpec(req.Spec)
 		if err != nil {
 			return nil, err
 		}
 
-		createInfo.RuntimeSpec = spec
+		createInfo.Spec = spec
 	}
 
 	if err := svc.Update(ctx, &createInfo, req.Fields...); err != nil {
@@ -163,18 +163,18 @@ func (s *service) Info(ctx context.Context, req *api.InfoSandboxRequest) (*api.I
 		return nil, errdefs.ToGRPCf(err, "failed to get sandbox %q status", req.ID)
 	}
 
-	spec, err := sandbox.SpecToAny(info.RuntimeSpec)
+	spec, err := sandbox.SpecToAny(info.Spec)
 	if err != nil {
 		return nil, errdefs.ToGRPC(err)
 	}
 
 	return &api.InfoSandboxResponse{
 		Info: &api.Info{
-			ID:          info.ID,
-			Labels:      info.Labels,
-			RuntimeSpec: spec,
-			CreatedAt:   info.CreatedAt,
-			UpdatedAt:   info.UpdatedAt,
+			ID:        info.ID,
+			Labels:    info.Labels,
+			Spec:      spec,
+			CreatedAt: info.CreatedAt,
+			UpdatedAt: info.UpdatedAt,
 		},
 	}, nil
 }
@@ -230,7 +230,7 @@ func (s *service) List(ctx context.Context, req *api.ListSandboxRequest) (*api.L
 			Extensions:  item.Extensions,
 		}
 
-		info.RuntimeSpec, err = sandbox.SpecToAny(item.RuntimeSpec)
+		info.Spec, err = sandbox.SpecToAny(item.Spec)
 		if err != nil {
 			return nil, errdefs.ToGRPC(err)
 		}
