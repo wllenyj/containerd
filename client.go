@@ -609,7 +609,7 @@ func (c *Client) SnapshotService(snapshotterName string) snapshots.Snapshotter {
 func (c *Client) SandboxService(name string) sandbox.Store {
 	c.connMu.Lock()
 	defer c.connMu.Unlock()
-	return newSandboxClient(c.conn, name)
+	return sandbox.NewRemoteStore(c.conn, name)
 }
 
 // TaskService returns the underlying TasksClient

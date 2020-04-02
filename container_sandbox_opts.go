@@ -19,29 +19,25 @@ package containerd
 import (
 	"context"
 
-	"github.com/pkg/errors"
-
 	"github.com/containerd/containerd/containers"
-	"github.com/containerd/containerd/sandbox"
 )
 
-func WithSandboxDescriptor(descriptor sandbox.Descriptor) NewContainerOpts {
-	return func(ctx context.Context, client *Client, c *containers.Container) error {
-		c.Extensions[sandbox.DescriptorExtensionName] = descriptor
-		return nil
-	}
-}
-
+// WithSandboxID appends a sandbox descriptor to a runtime (a metadata object that runtime implementations can use
+// to run containers inside of sandbox instance with the given ID).
 func WithSandboxID(name, id string) NewContainerOpts {
 	return func(ctx context.Context, client *Client, c *containers.Container) error {
-		store := client.SandboxService(name)
-		// Retrieve descriptor that shim can use for communicating with a sandbox intance
-		info, err := store.Info(ctx, id)
+		sandbox, err := client.LoadSandbox(ctx, name, id)
 		if err != nil {
-			return errors.Wrap(err, "failed to query sandbox descriptor")
+			return err
 		}
 
-		c.Extensions[sandbox.DescriptorExtensionName] = info.Descriptor
+		descriptor, err := sandbox.Descriptor(ctx)
+		if err != nil {
+			return err
+		}
+
+		// TODO: should we use a dedicated field in 'CreateTaskRequest' to pass sandbox descriptor to runtime?
+		c.Runtime.Options = descriptor
 		return nil
 	}
 }

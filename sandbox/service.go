@@ -20,62 +20,52 @@ import (
 	"context"
 	"time"
 
+	"github.com/containerd/typeurl"
 	"github.com/gogo/protobuf/types"
 	runtime "github.com/opencontainers/runtime-spec/specs-go"
+
+	api "github.com/containerd/containerd/api/services/sandbox/v1"
 )
 
 const DescriptorExtensionName = "io.containerd.ext/sandbox/descriptor"
 
-// Descriptor is an implementation agnostic connection handle returned from `Start` routine.
-// This object should contain connection information to be passed to shim implementation, so
-// they can communicate with sandboxes (for instance - socket path, API address, ports, etc).
-// When running a container (but after starting a sandbox), this descriptor can be passed along
-// with other container configuration via `containerd.WithSandboxID` and `containerd.WithSandboxDescriptor`.
-type Descriptor = types.Any
-
 // Spec is a specification to use for creating sandbox instances.
-// TODO: this should be a "sandbox-spec" intead of "runtime-spec".
+// TODO: this should be a "sandbox-spec" instead of "runtime-spec", using runtime one as a proof of concept.
 type Spec = runtime.Spec
+
+func init() {
+	typeurl.Register(&Spec{}, "types.containerd.io/opencontainers/runtime-spec/1/Spec")
+}
+
+// Descriptor is a metadata object to be passed to runtime implementations in order to run containers inside of
+//a sandbox instance.
+type Descriptor *types.Any
 
 // Controller interface to be implemented by sandbox proxy plugins to manage sandbox instances.
 type Controller interface {
 	// Start creates and runs a new sandbox instance.
 	// Clients may configure sandbox environment via runtime spec, labels, and extensions.
-	// Returned `Descriptor` represents an implementation specific connection object that
-	// will be passed to a runtime for communcating with sandbox instance.
-	Start(ctx context.Context, info *CreateOpts) (Descriptor, error)
+	Start(ctx context.Context, instance Instance) (Instance, error)
 	// Stop stops a sandbox instance identified by id.
-	Stop(ctx context.Context, id string) error
+	Stop(ctx context.Context, instance Instance) (Instance, error)
 	// Update changes configuration of already running sandbox instance.
-	Update(ctx context.Context, info *CreateOpts, fieldpaths ...string) error
+	Update(ctx context.Context, instance Instance, fieldpaths ...string) (Instance, error)
 	// Status returns a runtime status of a sandbox status identified by id.
-	Status(ctx context.Context, id string) (Status, error)
+	Status(ctx context.Context, instance Instance) (Status, error)
 	// Delete completely deletes sandbox instance from metadata store.
-	Delete(ctx context.Context, id string) error
+	Delete(ctx context.Context, instance Instance) error
 }
 
 // Store defines metadata storage and sandbox API interface for containerd clients.
 // metadata packages proxies client calls to a proxy plugins that implement `Controller` interface.
 type Store interface {
-	Start(ctx context.Context, info *CreateOpts) (*Info, error)
+	Start(ctx context.Context, instance Instance) (Instance, error)
 	Stop(ctx context.Context, id string) error
-	Update(ctx context.Context, info *CreateOpts, fieldpaths ...string) error
+	Update(ctx context.Context, instance Instance, fieldpaths ...string) (Instance, error)
 	Status(ctx context.Context, id string) (Status, error)
-	Info(ctx context.Context, id string) (*Info, error)
-	List(ctx context.Context, filter ...string) ([]*Info, error)
+	Find(ctx context.Context, id string) (Instance, error)
+	List(ctx context.Context, filter ...string) ([]*Instance, error)
 	Delete(ctx context.Context, id string) error
-}
-
-// CreateOpts represents sandbox creation parameters
-type CreateOpts struct {
-	// ID uniquely identifies the sandbox within a controller (proxy plugin) and namespace.
-	ID string
-	// Spec is the configuration to use for the sandbox
-	Spec *Spec
-	// Labels are extra configuration parameters needed to create a sandbox
-	Labels map[string]string
-	// Extensions stores client-specified metadata
-	Extensions map[string]types.Any
 }
 
 // State is current state of a sandbox (reported by `Status` call)
@@ -103,8 +93,8 @@ type Status struct {
 	Extra map[string]types.Any
 }
 
-// Info describes a sandbox instance
-type Info struct {
+// Instance is a sandbox instance object to be passed to controller plugin
+type Instance struct {
 	// ID uniquely identifies the sandbox ID
 	ID string
 	// Spec is the configuration that was used to create this sandbox instance
@@ -115,8 +105,16 @@ type Info struct {
 	CreatedAt time.Time
 	// UpdatedAt is the time at which the sandbox was updated.
 	UpdatedAt time.Time
-	// Descriptor is an object that describes how to communicate with a sandbox instance from a shim
-	Descriptor Descriptor
 	// Extensions store client-specified metadata
 	Extensions map[string]types.Any
+}
+
+func (i *Instance) ToDescriptor() (Descriptor, error) {
+	proto, err := instanceToProto(i)
+	if err != nil {
+		return nil, err
+	}
+
+	d := api.Descriptor{Instance: proto}
+	return toAny(d)
 }

@@ -18,186 +18,150 @@ package containerd
 
 import (
 	"context"
+	"strings"
 
-	"google.golang.org/grpc"
+	"github.com/gogo/protobuf/types"
+	"github.com/pkg/errors"
 
-	api "github.com/containerd/containerd/api/services/sandbox/v1"
-	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/sandbox"
 )
 
-type remoteSandboxClient struct {
+type Sandbox interface {
+	// ID returns unique sandbox instance identifier
+	ID() string
+	// Descriptor returns a connection object to be used in conjunction with runtime's `WithSandboxID`
+	Descriptor(ctx context.Context) (sandbox.Descriptor, error)
+	// Stop stops a sandbox instance
+	Stop(ctx context.Context) error
+	// Status returns current sandbox instance status
+	Status(ctx context.Context) (sandbox.Status, error)
+	// Metadata returns the underlying sandbox instance metadata
+	Metadata(ctx context.Context) (sandbox.Instance, error)
+	// Labels returns the underlying labels associated with the instance
+	Labels(ctx context.Context) (map[string]string, error)
+	// SetLabels sets the provided labels for the sandbox and returns the final label set
+	SetLabels(context.Context, map[string]string) (map[string]string, error)
+	// Extensions returns the underlying extensions associated with the instnace
+	Extensions(ctx context.Context) (map[string]types.Any, error)
+	// Delete deletes a sandbox instance and removes it from containerd metadata store
+	Delete(ctx context.Context, opts ...DelSandboxOpt) error
+}
+
+type sandboxInstance struct {
 	name   string
-	client api.StoreClient
+	id     string
+	client sandbox.Store
 }
 
-var _ sandbox.Store = &remoteSandboxClient{}
+var _ Sandbox = &sandboxInstance{}
 
-func newSandboxClient(conn *grpc.ClientConn, name string) *remoteSandboxClient {
-	return &remoteSandboxClient{
-		name:   name,
-		client: api.NewStoreClient(conn),
-	}
+func (s *sandboxInstance) ID() string {
+	return s.id
 }
 
-func (r *remoteSandboxClient) Start(ctx context.Context, createInfo *sandbox.CreateOpts) (*sandbox.Info, error) {
-	req := api.StartSandboxRequest{
-		Name:       r.name,
-		ID:         createInfo.ID,
-		Labels:     createInfo.Labels,
-		Extensions: createInfo.Extensions,
-	}
-
-	specAny, err := sandbox.SpecToAny(createInfo.Spec)
+func (s *sandboxInstance) Descriptor(ctx context.Context) (sandbox.Descriptor, error) {
+	info, err := s.Metadata(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	req.Spec = specAny
+	return info.ToDescriptor()
+}
 
-	resp, err := r.client.Start(ctx, &req)
+func (s *sandboxInstance) Stop(ctx context.Context) error {
+	return s.client.Stop(ctx, s.ID())
+}
+
+func (s *sandboxInstance) Status(ctx context.Context) (sandbox.Status, error) {
+	return s.client.Status(ctx, s.ID())
+}
+
+func (s *sandboxInstance) Metadata(ctx context.Context) (sandbox.Instance, error) {
+	info, err := s.client.Find(ctx, s.ID())
 	if err != nil {
-		return nil, errdefs.FromGRPC(err)
+		return sandbox.Instance{}, err
 	}
 
-	info := sandbox.Info{
-		ID:         resp.Info.ID,
-		Labels:     resp.Info.Labels,
-		CreatedAt:  resp.Info.CreatedAt,
-		UpdatedAt:  resp.Info.UpdatedAt,
-		Descriptor: resp.Info.Descriptor_,
-		Extensions: resp.Info.Extensions,
-	}
+	return info, nil
+}
 
-	info.Spec, err = sandbox.AnyToSpec(resp.Info.Spec)
+func (s *sandboxInstance) Labels(ctx context.Context) (map[string]string, error) {
+	info, err := s.Metadata(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return &info, nil
+	return info.Labels, nil
 }
 
-func (r *remoteSandboxClient) Stop(ctx context.Context, id string) error {
-	req := api.StopSandboxRequest{
-		Name: r.name,
-		ID:   id,
+func (s *sandboxInstance) SetLabels(ctx context.Context, labels map[string]string) (map[string]string, error) {
+	instance := sandbox.Instance{
+		ID:     s.ID(),
+		Labels: labels,
 	}
 
-	_, err := r.client.Stop(ctx, &req)
+	var paths []string
+	for k := range labels {
+		paths = append(paths, strings.Join([]string{"labels", k}, "."))
+	}
+
+	resp, err := s.client.Update(ctx, instance, paths...)
 	if err != nil {
-		return errdefs.FromGRPC(err)
+		return nil, err
 	}
 
-	return err
+	return resp.Labels, nil
 }
 
-func (r *remoteSandboxClient) Update(ctx context.Context, info *sandbox.CreateOpts, fieldpaths ...string) error {
-	req := api.UpdateSandboxRequest{
-		Name:       r.name,
-		ID:         info.ID,
-		Fields:     fieldpaths,
-		Labels:     info.Labels,
-		Extensions: info.Extensions,
-	}
-
-	spec, err := sandbox.SpecToAny(info.Spec)
+func (s *sandboxInstance) Extensions(ctx context.Context) (map[string]types.Any, error) {
+	info, err := s.Metadata(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	req.Spec = spec
-
-	if _, err := r.client.Update(ctx, &req); err != nil {
-		return errdefs.FromGRPC(err)
-	}
-
-	return nil
+	return info.Extensions, nil
 }
 
-func (r *remoteSandboxClient) Status(ctx context.Context, id string) (sandbox.Status, error) {
-	req := api.StatusSandboxRequest{
-		Name: r.name,
-		ID:   id,
-	}
-
-	resp, err := r.client.Status(ctx, &req)
-	if err != nil {
-		return sandbox.Status{}, errdefs.FromGRPC(err)
-	}
-
-	return sandbox.Status{
-		ID:      resp.ID,
-		PID:     resp.Pid,
-		State:   sandbox.State(resp.State),
-		Version: resp.Version,
-		Extra:   resp.Extra,
-	}, nil
+func (s *sandboxInstance) Delete(ctx context.Context, _ ...DelSandboxOpt) error {
+	return s.client.Delete(ctx, s.ID())
 }
 
-func (r *remoteSandboxClient) Info(ctx context.Context, id string) (*sandbox.Info, error) {
-	req := api.InfoSandboxRequest{
-		Name: r.name,
-		ID:   id,
+func (c *Client) NewSandbox(ctx context.Context, name, id string, opts ...NewSandboxOpt) (Sandbox, error) {
+	in := sandbox.Instance{
+		ID: id,
 	}
 
-	resp, err := r.client.Info(ctx, &req)
-	if err != nil {
-		return nil, errdefs.FromGRPC(err)
-	}
-
-	return r.makeInfo(resp.Info)
-}
-
-func (r *remoteSandboxClient) List(ctx context.Context, filter ...string) ([]*sandbox.Info, error) {
-	req := api.ListSandboxRequest{
-		Name:    r.name,
-		Filters: filter,
-	}
-
-	resp, err := r.client.List(ctx, &req)
-	if err != nil {
-		return nil, errdefs.FromGRPC(err)
-	}
-
-	out := make([]*sandbox.Info, len(resp.Info))
-	for i, p := range resp.Info {
-		out[i], err = r.makeInfo(p)
-		if err != nil {
+	for _, opt := range opts {
+		if err := opt(ctx, c, &in); err != nil {
 			return nil, err
 		}
 	}
 
-	return out, nil
-}
+	client := c.SandboxService(name)
 
-func (r *remoteSandboxClient) Delete(ctx context.Context, id string) error {
-	req := api.DeleteSandboxRequest{
-		Name: r.name,
-		ID:   id,
-	}
-
-	if _, err := r.client.Delete(ctx, &req); err != nil {
-		return errdefs.FromGRPC(err)
-	}
-
-	return nil
-}
-
-func (remoteSandboxClient) makeInfo(in *api.Info) (*sandbox.Info, error) {
-	info := sandbox.Info{
-		ID:         in.ID,
-		Labels:     in.Labels,
-		CreatedAt:  in.CreatedAt,
-		UpdatedAt:  in.UpdatedAt,
-		Descriptor: in.Descriptor_,
-		Extensions: in.Extensions,
-	}
-
-	spec, err := sandbox.AnyToSpec(in.Spec)
+	out, err := client.Start(ctx, in)
 	if err != nil {
 		return nil, err
 	}
 
-	info.Spec = spec
-	return &info, nil
+	return &sandboxInstance{
+		name:   name,
+		id:     out.ID,
+		client: client,
+	}, nil
+}
+
+func (c *Client) LoadSandbox(ctx context.Context, name, id string) (Sandbox, error) {
+	client := c.SandboxService(name)
+
+	info, err := client.Find(ctx, id)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to query sandbox info for %q", id)
+	}
+
+	return &sandboxInstance{
+		name:   name,
+		id:     info.ID,
+		client: client,
+	}, nil
 }

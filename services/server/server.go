@@ -39,7 +39,7 @@ import (
 	"google.golang.org/grpc/credentials"
 
 	csapi "github.com/containerd/containerd/api/services/content/v1"
-	"github.com/containerd/containerd/api/services/sandbox/v1"
+	sbapi "github.com/containerd/containerd/api/services/sandbox/v1"
 	ssapi "github.com/containerd/containerd/api/services/snapshots/v1"
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/content/local"
@@ -49,11 +49,11 @@ import (
 	"github.com/containerd/containerd/events/exchange"
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/metadata"
+	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/pkg/dialer"
 	"github.com/containerd/containerd/pkg/timeout"
 	"github.com/containerd/containerd/plugin"
-	sb "github.com/containerd/containerd/sandbox"
-	sbproxy "github.com/containerd/containerd/sandbox/proxy"
+	"github.com/containerd/containerd/sandbox"
 	srvconfig "github.com/containerd/containerd/services/server/config"
 	"github.com/containerd/containerd/snapshots"
 	ssproxy "github.com/containerd/containerd/snapshots/proxy"
@@ -367,13 +367,13 @@ func LoadPlugins(ctx context.Context, config *srvconfig.Config) ([]*plugin.Regis
 			if err != nil {
 				return nil, err
 			}
-			sandboxes := make(map[string]sb.Controller)
+			sandboxes := make(map[string]sandbox.Controller)
 			for name, srv := range sandboxesRaw {
 				inst, err := srv.Instance()
 				if err != nil {
 					return nil, err
 				}
-				sandboxes[name] = inst.(sb.Controller)
+				sandboxes[name] = inst.(sandbox.Controller)
 			}
 
 			shared := true
@@ -438,7 +438,7 @@ func LoadPlugins(ctx context.Context, config *srvconfig.Config) ([]*plugin.Regis
 		case string(plugin.SandboxPlugin), "sandbox":
 			t = plugin.SandboxPlugin
 			f = func(conn *grpc.ClientConn) interface{} {
-				return sbproxy.NewClient(sandbox.NewControllerClient(conn), name)
+				return sandbox.NewController(sbapi.NewControllerClient(conn))
 			}
 
 		default:
@@ -495,6 +495,10 @@ func (pc *proxyClients) getClient(address string) (*grpc.ClientConn, error) {
 		// TODO(stevvooe): We may need to allow configuration of this on the client.
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(defaults.DefaultMaxRecvMsgSize)),
 		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(defaults.DefaultMaxSendMsgSize)),
+
+		// Keep containerd namespace for proxy plugins
+		grpc.WithUnaryInterceptor(nsUnary),
+		grpc.WithStreamInterceptor(nsStreamer),
 	}
 
 	conn, err := grpc.Dial(dialer.DialAddress(address), gopts...)
@@ -515,4 +519,24 @@ func trapClosedConnErr(err error) error {
 		return nil
 	}
 	return err
+}
+
+func nsUnary(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, cb grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	// Add GRPC outgoing context from incoming context
+	// See https://github.com/grpc/grpc-go/blob/master/Documentation/grpc-metadata.md#sending-metadata
+	ns, ok := namespaces.Namespace(ctx)
+	if ok {
+		ctx = namespaces.WithNamespace(ctx, ns)
+	}
+
+	return cb(ctx, method, req, reply, cc, opts...)
+}
+
+func nsStreamer(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, cb grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+	ns, ok := namespaces.Namespace(ctx)
+	if ok {
+		ctx = namespaces.WithNamespace(ctx, ns)
+	}
+
+	return cb(ctx, desc, cc, method, opts...)
 }

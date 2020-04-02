@@ -66,19 +66,19 @@ func newLocal(srv sandbox.Store, publisher events.Publisher) *local {
 	}
 }
 
-func (l *local) Start(ctx context.Context, createInfo *sandbox.CreateOpts) (*sandbox.Info, error) {
-	info, err := l.Store.Start(ctx, createInfo)
+func (l *local) Start(ctx context.Context, instance sandbox.Instance) (sandbox.Instance, error) {
+	out, err := l.Store.Start(ctx, instance)
 	if err != nil {
-		return nil, err
+		return sandbox.Instance{}, err
 	}
 
 	if err := l.publisher.Publish(ctx, "/sandbox/start", &evt.SandboxStart{
-		ID: info.ID,
+		ID: out.ID,
 	}); err != nil {
-		return nil, errors.Wrap(err, "failed to publish sandbox start event")
+		return sandbox.Instance{}, errors.Wrap(err, "failed to publish sandbox start event")
 	}
 
-	return info, nil
+	return out, nil
 }
 
 func (l *local) Stop(ctx context.Context, id string) error {

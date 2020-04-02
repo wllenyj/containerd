@@ -70,7 +70,7 @@ type dbOptions struct {
 type DB struct {
 	db *bolt.DB
 	ss map[string]*snapshotter
-	sb map[string]*sandbox
+	sb map[string]*sandboxStore
 	cs *contentStore
 
 	// wlock is used to protect access to the data structures during garbage
@@ -111,7 +111,7 @@ func NewDB(
 	m := &DB{
 		db:      db,
 		ss:      make(map[string]*snapshotter, len(ss)),
-		sb:      make(map[string]*sandbox, len(sb)),
+		sb:      make(map[string]*sandboxStore, len(sb)),
 		dirtySS: map[string]struct{}{},
 		dbopts: dbOptions{
 			shared: true,

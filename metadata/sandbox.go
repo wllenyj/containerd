@@ -19,8 +19,10 @@ package metadata
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
+	"github.com/gogo/protobuf/types"
 	runtime "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 	"go.etcd.io/bbolt"
@@ -28,107 +30,231 @@ import (
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/metadata/boltutil"
 	"github.com/containerd/containerd/namespaces"
-	api "github.com/containerd/containerd/sandbox"
-	"github.com/gogo/protobuf/proto"
+	"github.com/containerd/containerd/sandbox"
 )
 
-type sandbox struct {
-	ctrl api.Controller
+type sandboxStore struct {
+	ctrl sandbox.Controller
 	name string
 	db   *DB
 }
 
-var _ api.Store = &sandbox{}
+var _ sandbox.Store = &sandboxStore{}
 
-func newSandbox(db *DB, name string, ctrl api.Controller) *sandbox {
-	return &sandbox{
+func newSandbox(db *DB, name string, ctrl sandbox.Controller) *sandboxStore {
+	return &sandboxStore{
 		ctrl: ctrl,
 		name: name,
 		db:   db,
 	}
 }
 
-func (s *sandbox) Start(ctx context.Context, create *api.CreateOpts) (*api.Info, error) {
+func (s *sandboxStore) Start(ctx context.Context, instance sandbox.Instance) (sandbox.Instance, error) {
 	ns, err := namespaces.NamespaceRequired(ctx)
 	if err != nil {
-		return nil, err
-	}
-
-	if create.ID == "" {
-		return nil, errors.Wrap(errdefs.ErrInvalidArgument, "empty sandbox ID")
+		return sandbox.Instance{}, err
 	}
 
 	var (
+		id  = instance.ID
 		now = time.Now().UTC()
+		ret sandbox.Instance
 	)
 
-	info := api.Info{
-		ID:        create.ID,
-		Spec:      create.Spec,
-		Labels:    create.Labels,
-		CreatedAt: now,
-		UpdatedAt: now,
+	if id == "" {
+		return sandbox.Instance{}, errors.Wrap(errdefs.ErrInvalidArgument, "empty sandbox ID")
 	}
 
 	if err := update(ctx, s.db, func(tx *bbolt.Tx) error {
-		if getSandboxBucket(tx, ns, s.name, info.ID) != nil {
+		if getSandboxBucket(tx, ns, s.name, id) != nil {
 			return errdefs.ErrAlreadyExists
 		}
 
-		descriptor, err := s.ctrl.Start(ctx, create)
-		if err != nil {
-			return errors.Wrap(err, "failed to start sandbox")
+		in := sandbox.Instance{
+			ID:         id,
+			Spec:       instance.Spec,
+			Labels:     instance.Labels,
+			CreatedAt:  now,
+			UpdatedAt:  now,
+			Extensions: instance.Extensions,
 		}
 
-		info.Descriptor = descriptor
-
-		bucket, err := createSandboxBucket(tx, ns, s.name, info.ID)
+		out, err := s.ctrl.Start(ctx, in)
 		if err != nil {
 			return err
 		}
 
-		if err := s.writeInfo(bucket, &info); err != nil {
+		if in.ID != out.ID {
+			return errors.Wrapf(errdefs.ErrFailedPrecondition, "controller should preserve instance ID")
+		}
+
+		if in.CreatedAt != out.CreatedAt {
+			return errors.Wrapf(errdefs.ErrFailedPrecondition, "controller should preserve creation time")
+		}
+
+		bucket, err := createSandboxBucket(tx, ns, s.name, id)
+		if err != nil {
+			return err
+		}
+
+		if err := s.write(bucket, &out); err != nil {
+			return err
+		}
+
+		ret = out
+		return nil
+	}); err != nil {
+		return sandbox.Instance{}, err
+	}
+
+	return ret, nil
+}
+
+func (s *sandboxStore) Stop(ctx context.Context, id string) error {
+	ns, err := namespaces.NamespaceRequired(ctx)
+	if err != nil {
+		return err
+	}
+
+	if err := update(ctx, s.db, func(tx *bbolt.Tx) error {
+		bucket := getSandboxBuckets(tx, ns, s.name)
+		if bucket == nil {
+			return errors.Wrap(errdefs.ErrNotFound, "no sandbox buckets")
+		}
+
+		in, err := s.read(bucket, []byte(id))
+		if err != nil {
+			return err
+		}
+
+		out, err := s.ctrl.Stop(ctx, *in)
+		if err != nil {
+			return err
+		}
+
+		if in.ID != out.ID {
+			return errors.Wrapf(errdefs.ErrFailedPrecondition, "controller should preserve instance ID")
+		}
+
+		if in.CreatedAt != out.CreatedAt {
+			return errors.Wrapf(errdefs.ErrFailedPrecondition, "controller should preserve creation time")
+		}
+
+		err = s.write(bucket, &out)
+		if err != nil {
 			return err
 		}
 
 		return nil
 	}); err != nil {
-		return nil, err
-	}
-
-	return &info, nil
-}
-
-func (s *sandbox) Stop(ctx context.Context, id string) error {
-	_, err := namespaces.NamespaceRequired(ctx)
-	if err != nil {
 		return err
 	}
 
-	return s.ctrl.Stop(ctx, id)
+	return nil
 }
 
-func (s *sandbox) Update(ctx context.Context, createInfo *api.CreateOpts, fieldpaths ...string) error {
-	return errdefs.ErrNotImplemented
-}
-
-func (s *sandbox) Status(ctx context.Context, id string) (api.Status, error) {
-	_, err := namespaces.NamespaceRequired(ctx)
-	if err != nil {
-		return api.Status{}, err
-	}
-
-	return s.ctrl.Status(ctx, id)
-}
-
-func (s *sandbox) Info(ctx context.Context, id string) (*api.Info, error) {
+func (s *sandboxStore) Update(ctx context.Context, instance sandbox.Instance, fieldpaths ...string) (sandbox.Instance, error) {
 	ns, err := namespaces.NamespaceRequired(ctx)
 	if err != nil {
-		return nil, err
+		return sandbox.Instance{}, err
 	}
 
 	var (
-		info *api.Info
+		ret sandbox.Instance
+	)
+
+	if err := update(ctx, s.db, func(tx *bbolt.Tx) error {
+		bucket := getSandboxBuckets(tx, ns, s.name)
+		if bucket == nil {
+			return errors.Wrap(errdefs.ErrNotFound, "no sandbox buckets")
+		}
+
+		local, err := s.read(bucket, []byte(instance.ID))
+		if err != nil {
+			return err
+		}
+
+		for _, path := range fieldpaths {
+			if strings.HasPrefix(path, "labels.") {
+				if local.Labels == nil {
+					local.Labels = map[string]string{}
+				}
+
+				key := strings.TrimPrefix(path, "labels.")
+				local.Labels[key] = instance.Labels[key]
+				continue
+			} else if strings.HasPrefix(path, "extensions.") {
+				if local.Extensions == nil {
+					local.Extensions = map[string]types.Any{}
+				}
+
+				key := strings.TrimPrefix(path, "extensions.")
+				local.Extensions[key] = instance.Extensions[key]
+				continue
+			}
+
+			switch path {
+			case "labels":
+				local.Labels = instance.Labels
+			case "extensions":
+				local.Extensions = instance.Extensions
+			case "spec":
+				local.Spec = instance.Spec
+			default:
+				return errors.Wrapf(errdefs.ErrInvalidArgument, "cannot update %q field on sandbox %q", path, instance.ID)
+			}
+		}
+
+		out, err := s.ctrl.Update(ctx, *local, fieldpaths...)
+		if err != nil {
+			return err
+		}
+
+		if local.ID != out.ID {
+			return errors.Wrapf(errdefs.ErrFailedPrecondition, "controller should preserve instance ID")
+		}
+
+		if local.CreatedAt != out.CreatedAt {
+			return errors.Wrapf(errdefs.ErrFailedPrecondition, "controller should preserve creation time")
+		}
+
+		out.UpdatedAt = time.Now().UTC()
+
+		if err := s.write(bucket, &out); err != nil {
+			return err
+		}
+
+		ret = out
+		return nil
+	}); err != nil {
+		return sandbox.Instance{}, err
+	}
+
+	return ret, nil
+}
+
+func (s *sandboxStore) Status(ctx context.Context, id string) (sandbox.Status, error) {
+	_, err := namespaces.NamespaceRequired(ctx)
+	if err != nil {
+		return sandbox.Status{}, err
+	}
+
+	instance, err := s.Find(ctx, id)
+	if err != nil {
+		return sandbox.Status{}, err
+	}
+
+	return s.ctrl.Status(ctx, instance)
+}
+
+func (s *sandboxStore) Find(ctx context.Context, id string) (sandbox.Instance, error) {
+	ns, err := namespaces.NamespaceRequired(ctx)
+	if err != nil {
+		return sandbox.Instance{}, err
+	}
+
+	var (
+		inst sandbox.Instance
 	)
 
 	if err := view(ctx, s.db, func(tx *bbolt.Tx) error {
@@ -137,27 +263,28 @@ func (s *sandbox) Info(ctx context.Context, id string) (*api.Info, error) {
 			return errors.Wrap(errdefs.ErrNotFound, "no sandbox buckets")
 		}
 
-		info, err = s.readInfo(bucket, []byte(id))
+		out, err := s.read(bucket, []byte(id))
 		if err != nil {
 			return err
 		}
 
+		inst = *out
 		return nil
 	}); err != nil {
-		return nil, err
+		return sandbox.Instance{}, err
 	}
 
-	return info, nil
+	return inst, nil
 }
 
-func (s *sandbox) List(ctx context.Context, filter ...string) ([]*api.Info, error) {
+func (s *sandboxStore) List(ctx context.Context, filter ...string) ([]*sandbox.Instance, error) {
 	ns, err := namespaces.NamespaceRequired(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	var (
-		list []*api.Info
+		list []*sandbox.Instance
 	)
 
 	if err := view(ctx, s.db, func(tx *bbolt.Tx) error {
@@ -167,7 +294,7 @@ func (s *sandbox) List(ctx context.Context, filter ...string) ([]*api.Info, erro
 		}
 
 		if err := bucket.ForEach(func(k, v []byte) error {
-			info, err := s.readInfo(bucket, k)
+			info, err := s.read(bucket, k)
 			if err != nil {
 				return errors.Wrapf(err, "failed to read bucket %q", string(k))
 			}
@@ -186,7 +313,7 @@ func (s *sandbox) List(ctx context.Context, filter ...string) ([]*api.Info, erro
 	return list, nil
 }
 
-func (s *sandbox) Delete(ctx context.Context, id string) error {
+func (s *sandboxStore) Delete(ctx context.Context, id string) error {
 	ns, err := namespaces.NamespaceRequired(ctx)
 	if err != nil {
 		return err
@@ -198,11 +325,16 @@ func (s *sandbox) Delete(ctx context.Context, id string) error {
 			return errors.Wrap(errdefs.ErrNotFound, "no sandbox buckets")
 		}
 
+		instance, err := s.read(buckets, []byte(id))
+		if err != nil {
+			return err
+		}
+
 		if err := buckets.DeleteBucket([]byte(id)); err != nil {
 			return errors.Wrapf(err, "failed to delete bucket %q", id)
 		}
 
-		if err := s.ctrl.Delete(ctx, id); err != nil {
+		if err := s.ctrl.Delete(ctx, *instance); err != nil {
 			return errors.Wrapf(err, "failed to delete sandbox %q", id)
 		}
 
@@ -214,9 +346,9 @@ func (s *sandbox) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *sandbox) readInfo(parent *bbolt.Bucket, id []byte) (*api.Info, error) {
+func (s *sandboxStore) read(parent *bbolt.Bucket, id []byte) (*sandbox.Instance, error) {
 	var (
-		info api.Info
+		inst sandbox.Instance
 		err  error
 	)
 
@@ -225,19 +357,14 @@ func (s *sandbox) readInfo(parent *bbolt.Bucket, id []byte) (*api.Info, error) {
 		return nil, errors.Wrapf(errdefs.ErrNotFound, "bucket %q not found", id)
 	}
 
-	info.ID = string(id)
+	inst.ID = string(id)
 
-	info.Labels, err = boltutil.ReadLabels(bucket)
+	inst.Labels, err = boltutil.ReadLabels(bucket)
 	if err != nil {
 		return nil, err
 	}
 
-	descriptor := bucket.Get([]byte("descriptor"))
-	if err := proto.Unmarshal(descriptor, &info.Descriptor); err != nil {
-		return nil, err
-	}
-
-	if err := boltutil.ReadTimestamps(bucket, &info.CreatedAt, &info.UpdatedAt); err != nil {
+	if err := boltutil.ReadTimestamps(bucket, &inst.CreatedAt, &inst.UpdatedAt); err != nil {
 		return nil, err
 	}
 
@@ -247,18 +374,18 @@ func (s *sandbox) readInfo(parent *bbolt.Bucket, id []byte) (*api.Info, error) {
 		if err := json.Unmarshal(specData, &runtimeSpec); err != nil {
 			return nil, errors.Wrap(err, "failed to unmarshal runtime spec")
 		}
-		info.Spec = &runtimeSpec
+		inst.Spec = &runtimeSpec
 	}
 
-	info.Extensions, err = boltutil.ReadExtensions(bucket)
+	inst.Extensions, err = boltutil.ReadExtensions(bucket)
 	if err != nil {
 		return nil, err
 	}
 
-	return &info, nil
+	return &inst, nil
 }
 
-func (s *sandbox) writeInfo(bucket *bbolt.Bucket, info *api.Info) error {
+func (s *sandboxStore) write(bucket *bbolt.Bucket, info *sandbox.Instance) error {
 	if err := bucket.Put([]byte("id"), []byte(info.ID)); err != nil {
 		return err
 	}
@@ -268,15 +395,6 @@ func (s *sandbox) writeInfo(bucket *bbolt.Bucket, info *api.Info) error {
 	}
 
 	if err := boltutil.WriteLabels(bucket, info.Labels); err != nil {
-		return err
-	}
-
-	descriptor, err := proto.Marshal(&info.Descriptor)
-	if err != nil {
-		return err
-	}
-
-	if err := bucket.Put([]byte("descriptor"), descriptor); err != nil {
 		return err
 	}
 
