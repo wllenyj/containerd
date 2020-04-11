@@ -20,11 +20,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/containerd/typeurl"
+	api "github.com/containerd/containerd/api/services/sandbox/v1"
 	"github.com/gogo/protobuf/types"
 	runtime "github.com/opencontainers/runtime-spec/specs-go"
-
-	api "github.com/containerd/containerd/api/services/sandbox/v1"
 )
 
 const DescriptorExtensionName = "io.containerd.ext/sandbox/descriptor"
@@ -32,10 +30,6 @@ const DescriptorExtensionName = "io.containerd.ext/sandbox/descriptor"
 // Spec is a specification to use for creating sandbox instances.
 // TODO: this should be a "sandbox-spec" instead of "runtime-spec", using runtime one as a proof of concept.
 type Spec = runtime.Spec
-
-func init() {
-	typeurl.Register(&Spec{}, "types.containerd.io/opencontainers/runtime-spec/1/Spec")
-}
 
 // Descriptor is a metadata object to be passed to runtime implementations in order to run containers inside of
 //a sandbox instance.

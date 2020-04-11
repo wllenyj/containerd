@@ -24,14 +24,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pkg/errors"
-	bolt "go.etcd.io/bbolt"
-
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/gc"
 	"github.com/containerd/containerd/log"
 	sb "github.com/containerd/containerd/sandbox"
 	"github.com/containerd/containerd/snapshots"
+	"github.com/pkg/errors"
+	bolt "go.etcd.io/bbolt"
 )
 
 const (
@@ -246,6 +245,7 @@ func (m *DB) Snapshotters() map[string]snapshots.Snapshotter {
 	return ss
 }
 
+// Sandboxes returns all available sandbox stores.
 func (m *DB) Sandboxes() map[string]sb.Store {
 	out := make(map[string]sb.Store, len(m.sb))
 	for n, srv := range m.sb {

@@ -27,17 +27,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/containerd/typeurl"
-	"github.com/gogo/protobuf/types"
-	specs "github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/pkg/errors"
-	bolt "go.etcd.io/bbolt"
-
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/filters"
 	"github.com/containerd/containerd/log/logtest"
 	"github.com/containerd/containerd/namespaces"
+	"github.com/containerd/typeurl"
+	"github.com/gogo/protobuf/types"
+	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/pkg/errors"
+	bolt "go.etcd.io/bbolt"
 )
 
 func init() {

@@ -19,11 +19,10 @@ package metadata
 import (
 	"testing"
 
-	"github.com/pkg/errors"
-	bolt "go.etcd.io/bbolt"
-
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/leases"
+	"github.com/pkg/errors"
+	bolt "go.etcd.io/bbolt"
 )
 
 func TestLeases(t *testing.T) {

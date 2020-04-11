@@ -17,12 +17,11 @@
 package sandbox
 
 import (
+	api "github.com/containerd/containerd/api/services/sandbox/v1"
+	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/typeurl"
 	"github.com/gogo/protobuf/types"
 	"github.com/pkg/errors"
-
-	api "github.com/containerd/containerd/api/services/sandbox/v1"
-	"github.com/containerd/containerd/errdefs"
 )
 
 func instanceToProto(i *Instance) (*api.Instance, error) {

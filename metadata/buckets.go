@@ -116,8 +116,7 @@
 //        |──sandbox
 //        │  ╘══*proxy name*
 //        │     ╘══*sandbox id*
-//        │        ├──runtime_spec : <json>      - JSON serialized runtime spec
-//        |        ├──descriptor : <binary>      - Connection descriptor
+//        │        ├──spec : <json>              - JSON serialized sandbox spec
 //        │        ├──createdat : <binary time>  - Created at
 //        │        ├──updatedat : <binary time>  - Updated at
 //        │        └──labels
@@ -284,14 +283,12 @@ func getIngestBucket(tx *bolt.Tx, namespace, ref string) *bolt.Bucket {
 	return getBucket(tx, bucketKeyVersion, []byte(namespace), bucketKeyObjectContent, bucketKeyObjectIngests, []byte(ref))
 }
 
-func createSandboxBucket(tx *bolt.Tx, namespace, name string, sandboxID string) (*bolt.Bucket, error) {
+func createSandboxBuckets(tx *bolt.Tx, namespace, name string) (*bolt.Bucket, error) {
 	return createBucketIfNotExists(
 		tx,
 		[]byte(namespace),
 		bucketKeyObjectSandboxes,
-		[]byte(name),
-		[]byte(sandboxID),
-	)
+		[]byte(name))
 }
 
 func getSandboxBuckets(tx *bolt.Tx, namespace, name string) *bolt.Bucket {
@@ -300,15 +297,5 @@ func getSandboxBuckets(tx *bolt.Tx, namespace, name string) *bolt.Bucket {
 		[]byte(namespace),
 		bucketKeyObjectSandboxes,
 		[]byte(name),
-	)
-}
-
-func getSandboxBucket(tx *bolt.Tx, namespace, name string, sandboxID string) *bolt.Bucket {
-	return getBucket(
-		tx,
-		[]byte(namespace),
-		bucketKeyObjectSandboxes,
-		[]byte(name),
-		[]byte(sandboxID),
 	)
 }

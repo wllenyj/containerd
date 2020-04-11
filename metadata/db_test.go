@@ -30,12 +30,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gogo/protobuf/types"
-	digest "github.com/opencontainers/go-digest"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
-	bolt "go.etcd.io/bbolt"
-
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/content/local"
@@ -48,10 +42,16 @@ import (
 	sb "github.com/containerd/containerd/sandbox"
 	"github.com/containerd/containerd/snapshots"
 	"github.com/containerd/containerd/snapshots/native"
+	"github.com/gogo/protobuf/types"
+	digest "github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/pkg/errors"
+	bolt "go.etcd.io/bbolt"
 )
 
 type testOptions struct {
-	extraSnapshots map[string]func(string) (snapshots.Snapshotter, error)
+	extraSnapshots     map[string]func(string) (snapshots.Snapshotter, error)
+	sandboxControllers map[string]sb.Controller
 }
 
 type testOpt func(*testOptions)
@@ -62,6 +62,16 @@ func withSnapshotter(name string, fn func(string) (snapshots.Snapshotter, error)
 			to.extraSnapshots = map[string]func(string) (snapshots.Snapshotter, error){}
 		}
 		to.extraSnapshots[name] = fn
+	}
+}
+
+func withSandbox(name string, controller sb.Controller) testOpt {
+	return func(to *testOptions) {
+		if to.sandboxControllers == nil {
+			to.sandboxControllers = map[string]sb.Controller{}
+		}
+
+		to.sandboxControllers[name] = controller
 	}
 }
 
@@ -108,7 +118,7 @@ func testDB(t *testing.T, opt ...testOpt) (context.Context, *DB, func()) {
 		t.Fatal(err)
 	}
 
-	db := NewDB(bdb, cs, snapshotters, map[string]sb.Controller{})
+	db := NewDB(bdb, cs, snapshotters, topts.sandboxControllers)
 	if err := db.Init(ctx); err != nil {
 		t.Fatal(err)
 	}

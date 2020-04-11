@@ -22,15 +22,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gogo/protobuf/types"
-	runtime "github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/pkg/errors"
-	"go.etcd.io/bbolt"
-
 	"github.com/containerd/containerd/errdefs"
+	"github.com/containerd/containerd/filters"
 	"github.com/containerd/containerd/metadata/boltutil"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/sandbox"
+	"github.com/gogo/protobuf/types"
+	"github.com/pkg/errors"
+	"go.etcd.io/bbolt"
 )
 
 type sandboxStore struct {
@@ -66,7 +65,8 @@ func (s *sandboxStore) Start(ctx context.Context, instance sandbox.Instance) (sa
 	}
 
 	if err := update(ctx, s.db, func(tx *bbolt.Tx) error {
-		if getSandboxBucket(tx, ns, s.name, id) != nil {
+		parent := getSandboxBuckets(tx, ns, s.name)
+		if parent != nil && parent.Bucket([]byte(id)) != nil {
 			return errdefs.ErrAlreadyExists
 		}
 
@@ -84,20 +84,16 @@ func (s *sandboxStore) Start(ctx context.Context, instance sandbox.Instance) (sa
 			return err
 		}
 
-		if in.ID != out.ID {
-			return errors.Wrapf(errdefs.ErrFailedPrecondition, "controller should preserve instance ID")
+		if err := s.validate(&in, &out); err != nil {
+			return err
 		}
 
-		if in.CreatedAt != out.CreatedAt {
-			return errors.Wrapf(errdefs.ErrFailedPrecondition, "controller should preserve creation time")
-		}
-
-		bucket, err := createSandboxBucket(tx, ns, s.name, id)
+		parent, err = createSandboxBuckets(tx, ns, s.name)
 		if err != nil {
 			return err
 		}
 
-		if err := s.write(bucket, &out); err != nil {
+		if err := s.write(parent, &out); err != nil {
 			return err
 		}
 
@@ -117,12 +113,12 @@ func (s *sandboxStore) Stop(ctx context.Context, id string) error {
 	}
 
 	if err := update(ctx, s.db, func(tx *bbolt.Tx) error {
-		bucket := getSandboxBuckets(tx, ns, s.name)
-		if bucket == nil {
+		parent := getSandboxBuckets(tx, ns, s.name)
+		if parent == nil {
 			return errors.Wrap(errdefs.ErrNotFound, "no sandbox buckets")
 		}
 
-		in, err := s.read(bucket, []byte(id))
+		in, err := s.read(parent, []byte(id))
 		if err != nil {
 			return err
 		}
@@ -132,15 +128,11 @@ func (s *sandboxStore) Stop(ctx context.Context, id string) error {
 			return err
 		}
 
-		if in.ID != out.ID {
-			return errors.Wrapf(errdefs.ErrFailedPrecondition, "controller should preserve instance ID")
+		if err := s.validate(in, &out); err != nil {
+			return err
 		}
 
-		if in.CreatedAt != out.CreatedAt {
-			return errors.Wrapf(errdefs.ErrFailedPrecondition, "controller should preserve creation time")
-		}
-
-		err = s.write(bucket, &out)
+		err = s.write(parent, &out)
 		if err != nil {
 			return err
 		}
@@ -164,12 +156,12 @@ func (s *sandboxStore) Update(ctx context.Context, instance sandbox.Instance, fi
 	)
 
 	if err := update(ctx, s.db, func(tx *bbolt.Tx) error {
-		bucket := getSandboxBuckets(tx, ns, s.name)
-		if bucket == nil {
+		parent := getSandboxBuckets(tx, ns, s.name)
+		if parent == nil {
 			return errors.Wrap(errdefs.ErrNotFound, "no sandbox buckets")
 		}
 
-		local, err := s.read(bucket, []byte(instance.ID))
+		local, err := s.read(parent, []byte(instance.ID))
 		if err != nil {
 			return err
 		}
@@ -210,17 +202,13 @@ func (s *sandboxStore) Update(ctx context.Context, instance sandbox.Instance, fi
 			return err
 		}
 
-		if local.ID != out.ID {
-			return errors.Wrapf(errdefs.ErrFailedPrecondition, "controller should preserve instance ID")
-		}
-
-		if local.CreatedAt != out.CreatedAt {
-			return errors.Wrapf(errdefs.ErrFailedPrecondition, "controller should preserve creation time")
-		}
-
 		out.UpdatedAt = time.Now().UTC()
 
-		if err := s.write(bucket, &out); err != nil {
+		if err := s.validate(local, &out); err != nil {
+			return err
+		}
+
+		if err := s.write(parent, &out); err != nil {
 			return err
 		}
 
@@ -277,10 +265,15 @@ func (s *sandboxStore) Find(ctx context.Context, id string) (sandbox.Instance, e
 	return inst, nil
 }
 
-func (s *sandboxStore) List(ctx context.Context, filter ...string) ([]*sandbox.Instance, error) {
+func (s *sandboxStore) List(ctx context.Context, fields ...string) ([]*sandbox.Instance, error) {
 	ns, err := namespaces.NamespaceRequired(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	filter, err := filters.ParseAll(fields...)
+	if err != nil {
+		return nil, errors.Wrap(errdefs.ErrInvalidArgument, err.Error())
 	}
 
 	var (
@@ -299,7 +292,10 @@ func (s *sandboxStore) List(ctx context.Context, filter ...string) ([]*sandbox.I
 				return errors.Wrapf(err, "failed to read bucket %q", string(k))
 			}
 
-			list = append(list, info)
+			if filter.Match(adaptSandbox(info)) {
+				list = append(list, info)
+			}
+
 			return nil
 		}); err != nil {
 			return err
@@ -346,6 +342,34 @@ func (s *sandboxStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+func (s *sandboxStore) validate(old, new *sandbox.Instance) error {
+	if new.ID == "" {
+		return errors.Wrap(errdefs.ErrInvalidArgument, "instance ID must not be empty")
+	}
+
+	if new.CreatedAt.IsZero() {
+		return errors.Wrap(errdefs.ErrInvalidArgument, "creation date must not be zero")
+	}
+
+	if new.UpdatedAt.IsZero() {
+		return errors.Wrap(errdefs.ErrInvalidArgument, "updated date must not be zero")
+	}
+
+	if new.Spec == nil {
+		return errors.Wrap(errdefs.ErrInvalidArgument, "sandbox spec must not be nil")
+	}
+
+	if old.ID != new.ID {
+		return errors.Wrap(errdefs.ErrFailedPrecondition, "controller should preserve instance ID")
+	}
+
+	if old.CreatedAt != new.CreatedAt {
+		return errors.Wrap(errdefs.ErrFailedPrecondition, "controller should preserve creation time")
+	}
+
+	return nil
+}
+
 func (s *sandboxStore) read(parent *bbolt.Bucket, id []byte) (*sandbox.Instance, error) {
 	var (
 		inst sandbox.Instance
@@ -368,9 +392,9 @@ func (s *sandboxStore) read(parent *bbolt.Bucket, id []byte) (*sandbox.Instance,
 		return nil, err
 	}
 
-	specData := bucket.Get([]byte("runtime_spec"))
+	specData := bucket.Get([]byte("spec"))
 	if specData != nil {
-		runtimeSpec := runtime.Spec{}
+		runtimeSpec := sandbox.Spec{}
 		if err := json.Unmarshal(specData, &runtimeSpec); err != nil {
 			return nil, errors.Wrap(err, "failed to unmarshal runtime spec")
 		}
@@ -385,29 +409,34 @@ func (s *sandboxStore) read(parent *bbolt.Bucket, id []byte) (*sandbox.Instance,
 	return &inst, nil
 }
 
-func (s *sandboxStore) write(bucket *bbolt.Bucket, info *sandbox.Instance) error {
-	if err := bucket.Put([]byte("id"), []byte(info.ID)); err != nil {
+func (s *sandboxStore) write(parent *bbolt.Bucket, instance *sandbox.Instance) error {
+	bucket, err := parent.CreateBucketIfNotExists([]byte(instance.ID))
+	if err != nil {
 		return err
 	}
 
-	if err := boltutil.WriteTimestamps(bucket, info.CreatedAt, info.UpdatedAt); err != nil {
+	if err := bucket.Put([]byte("id"), []byte(instance.ID)); err != nil {
 		return err
 	}
 
-	if err := boltutil.WriteLabels(bucket, info.Labels); err != nil {
+	if err := boltutil.WriteTimestamps(bucket, instance.CreatedAt, instance.UpdatedAt); err != nil {
 		return err
 	}
 
-	if err := boltutil.WriteExtensions(bucket, info.Extensions); err != nil {
+	if err := boltutil.WriteLabels(bucket, instance.Labels); err != nil {
 		return err
 	}
 
-	spec, err := json.Marshal(info.Spec)
+	if err := boltutil.WriteExtensions(bucket, instance.Extensions); err != nil {
+		return err
+	}
+
+	spec, err := json.Marshal(instance.Spec)
 	if err != nil {
 		return errors.Wrap(err, "failed to marshal runtime spec")
 	}
 
-	if err := bucket.Put([]byte("runtime_spec"), spec); err != nil {
+	if err := bucket.Put([]byte("spec"), spec); err != nil {
 		return err
 	}
 

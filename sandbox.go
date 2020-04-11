@@ -20,10 +20,9 @@ import (
 	"context"
 	"strings"
 
+	"github.com/containerd/containerd/sandbox"
 	"github.com/gogo/protobuf/types"
 	"github.com/pkg/errors"
-
-	"github.com/containerd/containerd/sandbox"
 )
 
 type Sandbox interface {
