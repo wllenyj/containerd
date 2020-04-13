@@ -21,11 +21,12 @@ import (
 	"time"
 
 	api "github.com/containerd/containerd/api/services/sandbox/v1"
+	"github.com/containerd/containerd/errdefs"
+	"github.com/containerd/typeurl"
 	"github.com/gogo/protobuf/types"
 	runtime "github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/pkg/errors"
 )
-
-const DescriptorExtensionName = "io.containerd.ext/sandbox/descriptor"
 
 // Spec is a specification to use for creating sandbox instances.
 // TODO: this should be a "sandbox-spec" instead of "runtime-spec", using runtime one as a proof of concept.
@@ -111,4 +112,30 @@ func (i *Instance) ToDescriptor() (Descriptor, error) {
 
 	d := api.Descriptor{Instance: proto}
 	return toAny(d)
+}
+
+// AddExtension appends an extension to sandbox instance's extension list.
+// Extension type must be registered within `typeurl` package.
+func (i *Instance) AddExtension(name string, ext interface{}) error {
+	if i.Extensions == nil {
+		i.Extensions = make(map[string]types.Any)
+	}
+
+	any, err := typeurl.MarshalAny(ext)
+	if err != nil {
+		return errors.Wrapf(err, "failed to marshal extension %q", name)
+	}
+
+	i.Extensions[name] = *any
+	return nil
+}
+
+// Extension unmarshals instance's extension by 'name'
+func (i *Instance) Extension(name string, out interface{}) error {
+	any, ok := i.Extensions[name]
+	if !ok {
+		return errors.Wrapf(errdefs.ErrNotFound, "extension %q not found", name)
+	}
+
+	return typeurl.UnmarshalTo(&any, out)
 }
