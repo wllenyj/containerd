@@ -26,6 +26,7 @@ import (
 	"github.com/containerd/containerd/api/services/images/v1"
 	introspectionapi "github.com/containerd/containerd/api/services/introspection/v1"
 	"github.com/containerd/containerd/api/services/namespaces/v1"
+	sandboxsapi "github.com/containerd/containerd/api/services/sandbox/v1"
 	"github.com/containerd/containerd/api/services/tasks/v1"
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/leases"
@@ -149,6 +150,12 @@ func getServicesOpts(ic *plugin.InitContext) ([]containerd.ServicesOpt, error) {
 		},
 		services.IntrospectionService: func(s interface{}) containerd.ServicesOpt {
 			return containerd.WithIntrospectionService(s.(introspectionapi.IntrospectionClient))
+		},
+		services.SandboxStoreService: func(s interface{}) containerd.ServicesOpt {
+			return containerd.WithSandboxStore(s.(sandboxsapi.StoreClient))
+		},
+		services.SandboxControllerService: func(s interface{}) containerd.ServicesOpt {
+			return containerd.WithSandboxController(s.(sandboxsapi.ControllerClient))
 		},
 	} {
 		p := plugins[s]

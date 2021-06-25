@@ -72,6 +72,7 @@ func (b *binary) Start(ctx context.Context, opts *types.Any, onClose func()) (_ 
 		opts,
 		args...,
 	)
+	logrus.Infof("======> %v =====>", cmd)
 	if err != nil {
 		return nil, err
 	}

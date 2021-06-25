@@ -65,6 +65,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
@@ -479,6 +480,7 @@ func (c *Client) Push(ctx context.Context, ref string, desc ocispec.Descriptor, 
 
 // GetImage returns an existing image
 func (c *Client) GetImage(ctx context.Context, ref string) (Image, error) {
+	logrus.Infof("client GetImage =====> %s", ref)
 	i, err := c.ImageService().Get(ctx, ref)
 	if err != nil {
 		return nil, err

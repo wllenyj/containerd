@@ -45,6 +45,7 @@ import (
 	"github.com/containerd/containerd/pkg/cri/util"
 	ctrdutil "github.com/containerd/containerd/pkg/cri/util"
 	"github.com/containerd/containerd/pkg/netns"
+	runtimeoptions "github.com/containerd/containerd/pkg/runtimeoptions/v1"
 	"github.com/containerd/containerd/snapshots"
 	selinux "github.com/opencontainers/selinux/go-selinux"
 )
@@ -94,10 +95,12 @@ func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandbox
 	)
 
 	// Ensure sandbox container image snapshot.
+	logrus.Infof("ensureImageExists ==============> ")
 	image, err := c.ensureImageExists(ctx, c.config.SandboxImage, config)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get sandbox image %q", c.config.SandboxImage)
 	}
+	logrus.Infof("toContainerdImage ==============> ")
 	containerdImage, err := c.toContainerdImage(ctx, *image)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get image from containerd %q", image.ID)
@@ -196,6 +199,19 @@ func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandbox
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to generate runtime options")
 	}
+	sandboxRuntimeOpts := &runtimeoptions.Options{}
+	sandboxs, err := c.client.NewSandbox(ctx, id,
+		containerd.WithSandboxRuntime(ociRuntime.Type, sandboxRuntimeOpts), // Select shim runtime and provide extra options via StartOpts.Options
+		containerd.WithSandboxSpec(spec),                                   // Sandbox spec to be written to bundle dir (currently allow arbitrary interface{})
+		containerd.WithSandboxLabels(sandboxLabels),                        // Labels to be added to store
+	)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create sandbox")
+	}
+	//err = sandboxs.Start(ctx)
+	//if err != nil {
+	//	return nil, errors.Wrap(err, "failed to start sandbox")
+	//}
 
 	snapshotterOpt := snapshots.WithLabels(snapshots.FilterInheritedLabels(config.Annotations))
 	opts := []containerd.NewContainerOpts{
@@ -206,7 +222,8 @@ func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandbox
 		containerd.WithContainerExtension(sandboxMetadataExtension, &sandbox.Metadata),
 		containerd.WithRuntime(ociRuntime.Type, runtimeOpts)}
 
-	container, err := c.client.NewContainer(ctx, id, opts...)
+	container, err := sandboxs.NewContainer(ctx, id, opts...)
+	//container, err := c.client.NewContainer(ctx, id, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create containerd container")
 	}

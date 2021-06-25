@@ -30,6 +30,7 @@ import (
 	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/services"
 	ptypes "github.com/gogo/protobuf/types"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -75,6 +76,7 @@ type local struct {
 var _ imagesapi.ImagesClient = &local{}
 
 func (l *local) Get(ctx context.Context, req *imagesapi.GetImageRequest, _ ...grpc.CallOption) (*imagesapi.GetImageResponse, error) {
+	logrus.Infof("Image service Get ======> %v", req)
 	image, err := l.store.Get(ctx, req.Name)
 	if err != nil {
 		return nil, errdefs.ToGRPC(err)
@@ -87,6 +89,7 @@ func (l *local) Get(ctx context.Context, req *imagesapi.GetImageRequest, _ ...gr
 }
 
 func (l *local) List(ctx context.Context, req *imagesapi.ListImagesRequest, _ ...grpc.CallOption) (*imagesapi.ListImagesResponse, error) {
+	logrus.Infof("Image service list ======> %v", req)
 	images, err := l.store.List(ctx, req.Filters...)
 	if err != nil {
 		return nil, errdefs.ToGRPC(err)

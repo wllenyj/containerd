@@ -25,6 +25,7 @@ import (
 	"github.com/containerd/containerd/services"
 	ptypes "github.com/gogo/protobuf/types"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
 
@@ -97,6 +98,7 @@ func (s *service) ListStream(req *api.ListContainersRequest, stream api.Containe
 }
 
 func (s *service) Create(ctx context.Context, req *api.CreateContainerRequest) (*api.CreateContainerResponse, error) {
+	logrus.Infof("container service create =====>")
 	return s.local.Create(ctx, req)
 }
 

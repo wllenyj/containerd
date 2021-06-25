@@ -26,6 +26,7 @@ import (
 	proto "github.com/containerd/containerd/runtime/v2/task"
 	"github.com/gogo/protobuf/types"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 // SandboxManager is a layer on top of task manager to support sandboxed environments.
@@ -69,6 +70,7 @@ func (m *SandboxManager) Start(ctx context.Context, sandboxID string, opts runti
 		return nil, errors.Wrapf(err, "failed to retrieve sandbox service from shim")
 	}
 
+	logrus.Infof("======> SandboxManager start %s", sandboxID)
 	if _, err := svc.StartSandbox(ctx, &proto.StartSandboxRequest{
 		SandboxID:  sandboxID,
 		BundlePath: bundle.Path,
@@ -184,8 +186,10 @@ func (m *SandboxManager) Create(ctx context.Context, id string, opts runtime.Cre
 
 	// No sandbox, fallback to task manager
 	if container.SandboxID == "" {
+		logrus.Infof("======> SandboxManager Create no sandbox: %s", id)
 		return m.tasks.Create(ctx, id, opts)
 	}
+	logrus.Infof("======> SandboxManager Create has sandbox: %s", container.SandboxID)
 
 	// Find sandbox this task belongs to
 	sandbox, err := m.getShim(ctx, container.SandboxID)

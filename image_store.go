@@ -25,6 +25,7 @@ import (
 	"github.com/containerd/containerd/images"
 	ptypes "github.com/gogo/protobuf/types"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sirupsen/logrus"
 )
 
 type remoteImages struct {
@@ -39,6 +40,7 @@ func NewImageStoreFromClient(client imagesapi.ImagesClient) images.Store {
 }
 
 func (s *remoteImages) Get(ctx context.Context, name string) (images.Image, error) {
+	logrus.Infof("remoteImages =====> %s", name)
 	resp, err := s.client.Get(ctx, &imagesapi.GetImageRequest{
 		Name: name,
 	})

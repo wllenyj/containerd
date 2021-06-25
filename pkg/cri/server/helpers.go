@@ -34,6 +34,7 @@ import (
 	imagedigest "github.com/opencontainers/go-digest"
 	"github.com/pelletier/go-toml"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 
@@ -164,6 +165,7 @@ func getRepoDigestAndTag(namedRef docker.Named, digest imagedigest.Digest, schem
 // returns store.ErrNotExist if the reference doesn't exist.
 func (c *criService) localResolve(refOrID string) (imagestore.Image, error) {
 	getImageID := func(refOrId string) string {
+		logrus.Infof("localResolve =====> ref id: %s", refOrId)
 		if _, err := imagedigest.Parse(refOrID); err == nil {
 			return refOrID
 		}
@@ -171,10 +173,12 @@ func (c *criService) localResolve(refOrID string) (imagestore.Image, error) {
 			// ref is not image id, try to resolve it locally.
 			// TODO(random-liu): Handle this error better for debugging.
 			normalized, err := docker.ParseDockerRef(ref)
+			logrus.Infof("localResolve =====> %s", normalized)
 			if err != nil {
 				return ""
 			}
 			id, err := c.imageStore.Resolve(normalized.String())
+			logrus.Infof("localResolve =====> id: %s", id)
 			if err != nil {
 				return ""
 			}
@@ -187,6 +191,7 @@ func (c *criService) localResolve(refOrID string) (imagestore.Image, error) {
 		// Try to treat ref as imageID
 		imageID = refOrID
 	}
+	logrus.Infof("localResolve imageStore.Get =====> id: %s", imageID)
 	return c.imageStore.Get(imageID)
 }
 
@@ -194,6 +199,7 @@ func (c *criService) localResolve(refOrID string) (imagestore.Image, error) {
 func (c *criService) toContainerdImage(ctx context.Context, image imagestore.Image) (containerd.Image, error) {
 	// image should always have at least one reference.
 	if len(image.References) == 0 {
+		logrus.Infof("toContainerdImage ==============> return: %v", image)
 		return nil, errors.Errorf("invalid image with no reference %q", image.ID)
 	}
 	return c.client.GetImage(ctx, image.References[0])
