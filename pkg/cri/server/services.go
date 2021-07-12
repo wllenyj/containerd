@@ -173,10 +173,10 @@ func (c *criServices) getServiceBySandboxID(id string) (CRIPlugin, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(sandbox.Mode) == 0 || sandbox.Mode == DefaultCRIMode {
+	if len(sandbox.GetMetadata().Mode) == 0 || sandbox.GetMetadata().Mode == DefaultCRIMode {
 		return c.c, nil
 	}
-	return c.getServiceByMode(sandbox.Mode)
+	return c.getServiceByMode(sandbox.GetMetadata().Mode)
 }
 
 func (c *criServices) getServiceByContainerID(id string) (CRIPlugin, error) {
