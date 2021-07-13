@@ -32,6 +32,7 @@ import (
 	imagestore "github.com/containerd/containerd/pkg/cri/store/image"
 	"github.com/containerd/containerd/pkg/cri/store/label"
 	sandboxstore "github.com/containerd/containerd/pkg/cri/store/sandbox"
+	cristore "github.com/containerd/containerd/pkg/cri/store/service"
 	snapshotstore "github.com/containerd/containerd/pkg/cri/store/snapshot"
 	ostesting "github.com/containerd/containerd/pkg/os/testing"
 	"github.com/containerd/containerd/pkg/registrar"
@@ -58,13 +59,15 @@ func newTestCRIService() *criService {
 				SandboxImage: testSandboxImage,
 			},
 		},
-		imageFSPath:        testImageFSPath,
-		os:                 ostesting.NewFakeOS(),
-		sandboxStore:       sandboxstore.NewStore(labels),
-		imageStore:         imagestore.NewStore(nil),
+		imageFSPath: testImageFSPath,
+		os:          ostesting.NewFakeOS(),
+		Store: &cristore.Store{
+			SandboxStore:   sandboxstore.NewStore(labels),
+			ImageStore:     imagestore.NewStore(nil),
+			ContainerStore: containerstore.NewStore(labels),
+		},
 		snapshotStore:      snapshotstore.NewStore(),
 		sandboxNameIndex:   registrar.NewRegistrar(),
-		containerStore:     containerstore.NewStore(labels),
 		containerNameIndex: registrar.NewRegistrar(),
 		netPlugin:          servertesting.NewFakeCNIPlugin(),
 	}

@@ -21,13 +21,14 @@ import (
 	"io"
 
 	"github.com/containerd/containerd"
+	"github.com/containerd/containerd/plugin"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 	runtime_alpha "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 
 	criconfig "github.com/containerd/containerd/pkg/cri/config"
-	"github.com/containerd/containerd/plugin"
+	cristore "github.com/containerd/containerd/pkg/cri/store/service"
 )
 
 // grpcServices are all the grpc services provided by cri containerd.
@@ -61,18 +62,21 @@ type CRIService interface {
 type criServices struct {
 	// config contains all configurations.
 	config *criconfig.Config
+	// stores all resources associated with cri
+	store *cristore.Store
 	// default service
 	c *criService
 }
 
 // NewCRIServices returns a new instance of CRIService
-func NewCRIServices(config criconfig.Config, client *containerd.Client) (CRIService, error) {
-	c, err := newCRIService(&config, client)
+func NewCRIServices(config criconfig.Config, client *containerd.Client, store *cristore.Store) (CRIService, error) {
+	c, err := newCRIService(&config, client, store)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create CRI service")
 	}
 	cs := &criServices{
 		config: &config,
+		store:  store,
 		c:      c,
 	}
 	return cs, nil
