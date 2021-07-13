@@ -7,6 +7,7 @@ import (
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/plugin"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 	runtime_alpha "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
@@ -44,8 +45,9 @@ type CRIService interface {
 }
 
 type criServices struct {
-	// config contains all configurations.
 	config *criconfig.Config
+	// services contains all cri plugins
+	services map[string]CRIPlugin
 	// stores all resources associated with cri
 	store *cristore.Store
 	// default service
@@ -53,15 +55,16 @@ type criServices struct {
 }
 
 // NewCRIServices returns a new instance of CRIService
-func NewCRIServices(config criconfig.Config, client *containerd.Client, store *cristore.Store) (CRIService, error) {
+func NewCRIServices(config criconfig.Config, client *containerd.Client, store *cristore.Store, services map[string]CRIPlugin) (CRIService, error) {
 	c, err := newCRIService(&config, client, store)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create CRI service")
 	}
 	cs := &criServices{
-		config: &config,
-		store:  store,
-		c:      c,
+		config:   &config,
+		services: services,
+		store:    store,
+		c:        c,
 	}
 	return cs, nil
 }
@@ -83,16 +86,32 @@ func (c *criServices) RegisterTCP(s *grpc.Server) error {
 
 // implement CRIPlugin Initialized interface
 func (c *criServices) Initialized() bool {
-	return c.c.Initialized()
+	initialized := true
+	for _, s := range c.services {
+		initialized = initialized && s.Initialized()
+	}
+	return initialized && c.c.Initialized()
 }
 
 // Run starts the CRI service.
 func (c *criServices) Run() error {
+	for mode, s := range c.services {
+		go func(mode string, service CRIPlugin) {
+			if err := service.Run(); err != nil {
+				logrus.Fatalf("Failed to run CRI %s service", mode)
+			}
+		}(mode, s)
+	}
 	return c.c.Run()
 }
 
 // Close stops the CRI service.
 func (c *criServices) Close() error {
+	for mode, s := range c.services {
+		if err := s.Close(); err != nil {
+			logrus.Errorf("Failed to Close CRI %s service", mode)
+		}
+	}
 	return c.c.Close()
 }
 
@@ -106,8 +125,55 @@ func (c *criServices) register(s *grpc.Server) error {
 	return nil
 }
 
+// getServiceByRuntime get runtime specific implementations
+func (c *criServices) getServiceByRuntime(runtime string) CRIPlugin {
+	r, ok := c.config.ContainerdConfig.Runtimes[runtime]
+	if !ok {
+		return nil
+	}
+	if r.Mode == "" {
+		return c.c
+	}
+	return c.getServiceByMode(r.Mode)
+}
+
+func (c *criServices) getServiceByMode(mode string) CRIPlugin {
+	i, ok := c.services[mode]
+	if !ok {
+		// there is not plugin
+		return nil
+	}
+	return i
+}
+
+func (c *criServices) getServiceBySandboxID(id string) CRIPlugin {
+	sandbox, err := c.store.SandboxStore.Get(id)
+	if err != nil {
+		return nil
+	}
+	if sandbox.Mode == "" {
+		return c.c
+	}
+	return c.getServiceByMode(sandbox.Mode)
+}
+
+func (c *criServices) getServiceByContainerID(id string) CRIPlugin {
+	container, err := c.store.ContainerStore.Get(id)
+	if err != nil {
+		return nil
+	}
+	if container.Mode == "" {
+		return c.c
+	}
+	return c.getServiceByMode(container.Mode)
+}
+
 func (c *criServices) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandboxRequest) (resp *runtime.RunPodSandboxResponse, retErr error) {
-	return c.c.RunPodSandbox(ctx, r)
+	i := c.getServiceByRuntime(r.GetRuntimeHandler())
+	if i == nil {
+		return nil, errors.Errorf("no runtime mode for %q is configured", r.GetRuntimeHandler())
+	}
+	return i.RunPodSandbox(ctx, r)
 }
 
 func (c *criServices) ListPodSandbox(ctx context.Context, r *runtime.ListPodSandboxRequest) (resp *runtime.ListPodSandboxResponse, retErr error) {
@@ -115,27 +181,51 @@ func (c *criServices) ListPodSandbox(ctx context.Context, r *runtime.ListPodSand
 }
 
 func (c *criServices) PodSandboxStatus(ctx context.Context, r *runtime.PodSandboxStatusRequest) (resp *runtime.PodSandboxStatusResponse, retErr error) {
-	return c.c.PodSandboxStatus(ctx, r)
+	i := c.getServiceBySandboxID(r.GetPodSandboxId())
+	if i == nil {
+		return nil, errors.Errorf("no service for %q", r.GetPodSandboxId())
+	}
+	return i.PodSandboxStatus(ctx, r)
 }
 
 func (c *criServices) StopPodSandbox(ctx context.Context, r *runtime.StopPodSandboxRequest) (_ *runtime.StopPodSandboxResponse, err error) {
-	return c.c.StopPodSandbox(ctx, r)
+	i := c.getServiceBySandboxID(r.GetPodSandboxId())
+	if i == nil {
+		return nil, errors.Errorf("no service for %q", r.GetPodSandboxId())
+	}
+	return i.StopPodSandbox(ctx, r)
 }
 
 func (c *criServices) RemovePodSandbox(ctx context.Context, r *runtime.RemovePodSandboxRequest) (resp *runtime.RemovePodSandboxResponse, retErr error) {
-	return c.c.RemovePodSandbox(ctx, r)
+	i := c.getServiceBySandboxID(r.GetPodSandboxId())
+	if i == nil {
+		return nil, errors.Errorf("no service for %q", r.GetPodSandboxId())
+	}
+	return i.RemovePodSandbox(ctx, r)
 }
 
 func (c *criServices) PortForward(ctx context.Context, r *runtime.PortForwardRequest) (res *runtime.PortForwardResponse, err error) {
-	return c.c.PortForward(ctx, r)
+	i := c.getServiceBySandboxID(r.GetPodSandboxId())
+	if i == nil {
+		return nil, errors.Errorf("no service for %q", r.GetPodSandboxId())
+	}
+	return i.PortForward(ctx, r)
 }
 
 func (c *criServices) CreateContainer(ctx context.Context, r *runtime.CreateContainerRequest) (resp *runtime.CreateContainerResponse, retErr error) {
-	return c.c.CreateContainer(ctx, r)
+	i := c.getServiceBySandboxID(r.GetPodSandboxId())
+	if i == nil {
+		return nil, errors.Errorf("no service for %q", r.GetPodSandboxId())
+	}
+	return i.CreateContainer(ctx, r)
 }
 
 func (c *criServices) StartContainer(ctx context.Context, r *runtime.StartContainerRequest) (_ *runtime.StartContainerResponse, err error) {
-	return c.c.StartContainer(ctx, r)
+	i := c.getServiceByContainerID(r.GetContainerId())
+	if i == nil {
+		return nil, errors.Errorf("no service for %q", r.GetContainerId())
+	}
+	return i.StartContainer(ctx, r)
 }
 
 func (c *criServices) ListContainers(ctx context.Context, r *runtime.ListContainersRequest) (resp *runtime.ListContainersResponse, retErr error) {
@@ -143,31 +233,59 @@ func (c *criServices) ListContainers(ctx context.Context, r *runtime.ListContain
 }
 
 func (c *criServices) ContainerStatus(ctx context.Context, r *runtime.ContainerStatusRequest) (res *runtime.ContainerStatusResponse, err error) {
-	return c.c.ContainerStatus(ctx, r)
+	i := c.getServiceByContainerID(r.GetContainerId())
+	if i == nil {
+		return nil, errors.Errorf("no service for %q", r.GetContainerId())
+	}
+	return i.ContainerStatus(ctx, r)
 }
 
 func (c *criServices) StopContainer(ctx context.Context, r *runtime.StopContainerRequest) (res *runtime.StopContainerResponse, err error) {
-	return c.c.StopContainer(ctx, r)
+	i := c.getServiceByContainerID(r.GetContainerId())
+	if i == nil {
+		return nil, errors.Errorf("no service for %q", r.GetContainerId())
+	}
+	return i.StopContainer(ctx, r)
 }
 
 func (c *criServices) RemoveContainer(ctx context.Context, r *runtime.RemoveContainerRequest) (resp *runtime.RemoveContainerResponse, retErr error) {
-	return c.c.RemoveContainer(ctx, r)
+	i := c.getServiceByContainerID(r.GetContainerId())
+	if i == nil {
+		return nil, errors.Errorf("no service for %q", r.GetContainerId())
+	}
+	return i.RemoveContainer(ctx, r)
 }
 
 func (c *criServices) ExecSync(ctx context.Context, r *runtime.ExecSyncRequest) (res *runtime.ExecSyncResponse, err error) {
-	return c.c.ExecSync(ctx, r)
+	i := c.getServiceByContainerID(r.GetContainerId())
+	if i == nil {
+		return nil, errors.Errorf("no service for %q", r.GetContainerId())
+	}
+	return i.ExecSync(ctx, r)
 }
 
 func (c *criServices) Exec(ctx context.Context, r *runtime.ExecRequest) (res *runtime.ExecResponse, err error) {
-	return c.c.Exec(ctx, r)
+	i := c.getServiceByContainerID(r.GetContainerId())
+	if i == nil {
+		return nil, errors.Errorf("no service for %q", r.GetContainerId())
+	}
+	return i.Exec(ctx, r)
 }
 
 func (c *criServices) Attach(ctx context.Context, r *runtime.AttachRequest) (res *runtime.AttachResponse, err error) {
-	return c.c.Attach(ctx, r)
+	i := c.getServiceByContainerID(r.GetContainerId())
+	if i == nil {
+		return nil, errors.Errorf("no service for %q", r.GetContainerId())
+	}
+	return i.Attach(ctx, r)
 }
 
 func (c *criServices) UpdateContainerResources(ctx context.Context, r *runtime.UpdateContainerResourcesRequest) (res *runtime.UpdateContainerResourcesResponse, err error) {
-	return c.c.UpdateContainerResources(ctx, r)
+	i := c.getServiceByContainerID(r.GetContainerId())
+	if i == nil {
+		return nil, errors.Errorf("no service for %q", r.GetContainerId())
+	}
+	return i.UpdateContainerResources(ctx, r)
 }
 
 func (c *criServices) PullImage(ctx context.Context, r *runtime.PullImageRequest) (res *runtime.PullImageResponse, err error) {
@@ -191,7 +309,11 @@ func (c *criServices) ImageFsInfo(ctx context.Context, r *runtime.ImageFsInfoReq
 }
 
 func (c *criServices) ContainerStats(ctx context.Context, r *runtime.ContainerStatsRequest) (res *runtime.ContainerStatsResponse, err error) {
-	return c.c.ContainerStats(ctx, r)
+	i := c.getServiceByContainerID(r.GetContainerId())
+	if i == nil {
+		return nil, errors.Errorf("no service for %q", r.GetContainerId())
+	}
+	return i.ContainerStats(ctx, r)
 }
 
 func (c *criServices) ListContainerStats(ctx context.Context, r *runtime.ListContainerStatsRequest) (resp *runtime.ListContainerStatsResponse, retErr error) {
@@ -211,5 +333,9 @@ func (c *criServices) UpdateRuntimeConfig(ctx context.Context, r *runtime.Update
 }
 
 func (c *criServices) ReopenContainerLog(ctx context.Context, r *runtime.ReopenContainerLogRequest) (res *runtime.ReopenContainerLogResponse, err error) {
-	return c.c.ReopenContainerLog(ctx, r)
+	i := c.getServiceByContainerID(r.GetContainerId())
+	if i == nil {
+		return nil, errors.Errorf("no service for %q", r.GetContainerId())
+	}
+	return i.ReopenContainerLog(ctx, r)
 }

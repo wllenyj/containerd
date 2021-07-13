@@ -341,6 +341,10 @@ func (c *criService) loadSandbox(ctx context.Context, cntr containerd.Container)
 		return sandbox, errors.Wrapf(err, "failed to unmarshal metadata extension %q", ext)
 	}
 	meta := data.(*sandboxstore.Metadata)
+	// TODO:
+	if meta.Mode != "" && meta.Mode != "runc" {
+		return sandbox, errors.Errorf("skip %q runtime recover", meta.Mode)
+	}
 
 	s, err := func() (sandboxstore.Status, error) {
 		status := unknownSandboxStatus()
