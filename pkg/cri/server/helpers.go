@@ -34,6 +34,7 @@ import (
 	imagedigest "github.com/opencontainers/go-digest"
 	"github.com/pelletier/go-toml"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 
@@ -94,7 +95,7 @@ const (
 
 // makeSandboxName generates sandbox name from sandbox metadata. The name
 // generated is unique as long as sandbox metadata is unique.
-func makeSandboxName(s *runtime.PodSandboxMetadata) string {
+func MakeSandboxName(s *runtime.PodSandboxMetadata) string {
 	return strings.Join([]string{
 		s.Name,                       // 0
 		s.Namespace,                  // 1
@@ -106,7 +107,7 @@ func makeSandboxName(s *runtime.PodSandboxMetadata) string {
 // makeContainerName generates container name from sandbox and container metadata.
 // The name generated is unique as long as the sandbox container combination is
 // unique.
-func makeContainerName(c *runtime.ContainerMetadata, s *runtime.PodSandboxMetadata) string {
+func MakeContainerName(c *runtime.ContainerMetadata, s *runtime.PodSandboxMetadata) string {
 	return strings.Join([]string{
 		c.Name,                       // 0
 		s.Name,                       // 1: pod name
@@ -163,6 +164,7 @@ func getRepoDigestAndTag(namedRef docker.Named, digest imagedigest.Digest, schem
 // localResolve resolves image reference locally and returns corresponding image metadata. It
 // returns store.ErrNotExist if the reference doesn't exist.
 func (c *criService) localResolve(refOrID string) (imagestore.Image, error) {
+	logrus.Infof("====> localResolve refOfID: %q", refOrID)
 	getImageID := func(refOrId string) string {
 		if _, err := imagedigest.Parse(refOrID); err == nil {
 			return refOrID
@@ -174,7 +176,8 @@ func (c *criService) localResolve(refOrID string) (imagestore.Image, error) {
 			if err != nil {
 				return ""
 			}
-			id, err := c.imageStore.Resolve(normalized.String())
+			logrus.Infof("====> docker.ParseDockerRef normalized: %q", normalized)
+			id, err := c.ImageStore.Resolve(normalized.String())
 			if err != nil {
 				return ""
 			}
@@ -187,7 +190,8 @@ func (c *criService) localResolve(refOrID string) (imagestore.Image, error) {
 		// Try to treat ref as imageID
 		imageID = refOrID
 	}
-	return c.imageStore.Get(imageID)
+	logrus.Infof("====> ImageStore.Resolve imageID: %q", imageID)
+	return c.ImageStore.Get(imageID)
 }
 
 // toContainerdImage converts an image object in image store to containerd image handler.
@@ -234,7 +238,7 @@ func (c *criService) ensureImageExists(ctx context.Context, ref string, config *
 		return nil, errors.Wrapf(err, "failed to pull image %q", ref)
 	}
 	imageID := resp.GetImageRef()
-	newImage, err := c.imageStore.Get(imageID)
+	newImage, err := c.ImageStore.Get(imageID)
 	if err != nil {
 		// It's still possible that someone removed the image right after it is pulled.
 		return nil, errors.Wrapf(err, "failed to get image %q after pulling", imageID)
@@ -247,7 +251,7 @@ func (c *criService) ensureImageExists(ctx context.Context, ref string, config *
 // The target container must be in the same sandbox and must be running.
 // Returns the target container for convenience.
 func (c *criService) validateTargetContainer(sandboxID, targetContainerID string) (containerstore.Container, error) {
-	targetContainer, err := c.containerStore.Get(targetContainerID)
+	targetContainer, err := c.ContainerStore.Get(targetContainerID)
 	if err != nil {
 		return containerstore.Container{}, errors.Wrapf(err, "container %q does not exist", targetContainerID)
 	}
@@ -266,8 +270,8 @@ func (c *criService) validateTargetContainer(sandboxID, targetContainerID string
 	return targetContainer, nil
 }
 
-// isInCRIMounts checks whether a destination is in CRI mount list.
-func isInCRIMounts(dst string, mounts []*runtime.Mount) bool {
+// IsInCRIMounts checks whether a destination is in CRI mount list.
+func IsInCRIMounts(dst string, mounts []*runtime.Mount) bool {
 	for _, m := range mounts {
 		if filepath.Clean(m.ContainerPath) == filepath.Clean(dst) {
 			return true
@@ -282,8 +286,8 @@ func filterLabel(k, v string) string {
 	return fmt.Sprintf("labels.%q==%q", k, v)
 }
 
-// buildLabel builds the labels from config to be passed to containerd
-func buildLabels(configLabels map[string]string, containerType string) map[string]string {
+// BuildLabel builds the labels from config to be passed to containerd
+func BuildLabels(configLabels map[string]string, containerType string) map[string]string {
 	labels := make(map[string]string)
 	for k, v := range configLabels {
 		labels[k] = v
@@ -321,7 +325,7 @@ func parseImageReferences(refs []string) ([]string, []string) {
 }
 
 // generateRuntimeOptions generates runtime options from cri plugin config.
-func generateRuntimeOptions(r criconfig.Runtime, c criconfig.Config) (interface{}, error) {
+func generateRuntimeOptions(r criconfig.Runtime, c *criconfig.Config) (interface{}, error) {
 	if r.Options == nil {
 		if r.Type != plugin.RuntimeLinuxV1 {
 			return nil, nil
@@ -361,7 +365,7 @@ func getRuntimeOptionsType(t string) interface{} {
 }
 
 // getRuntimeOptions get runtime options from container metadata.
-func getRuntimeOptions(c containers.Container) (interface{}, error) {
+func GetRuntimeOptions(c containers.Container) (interface{}, error) {
 	if c.Runtime.Options == nil {
 		return nil, nil
 	}
@@ -398,9 +402,9 @@ func unknownSandboxStatus() sandboxstore.Status {
 	}
 }
 
-// getPassthroughAnnotations filters requested pod annotations by comparing
+// GetPassthroughAnnotations filters requested pod annotations by comparing
 // against permitted annotations for the given runtime.
-func getPassthroughAnnotations(podAnnotations map[string]string,
+func GetPassthroughAnnotations(podAnnotations map[string]string,
 	runtimePodAnnotations []string) (passthroughAnnotations map[string]string) {
 	passthroughAnnotations = make(map[string]string)
 

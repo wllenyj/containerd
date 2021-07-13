@@ -51,10 +51,11 @@ func (c *criService) CreateContainer(ctx context.Context, r *runtime.CreateConta
 	config := r.GetConfig()
 	log.G(ctx).Debugf("Container config %+v", config)
 	sandboxConfig := r.GetSandboxConfig()
-	sandbox, err := c.sandboxStore.Get(r.GetPodSandboxId())
+	i, err := c.SandboxStore.Get(r.GetPodSandboxId())
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to find sandbox id %q", r.GetPodSandboxId())
 	}
+	sandbox := i.(*Sandbox)
 	sandboxID := sandbox.ID
 	s, err := sandbox.Container.Task(ctx, nil)
 	if err != nil {
@@ -71,15 +72,15 @@ func (c *criService) CreateContainer(ctx context.Context, r *runtime.CreateConta
 		return nil, errors.New("container config must include metadata")
 	}
 	containerName := metadata.Name
-	name := makeContainerName(metadata, sandboxConfig.GetMetadata())
+	name := MakeContainerName(metadata, sandboxConfig.GetMetadata())
 	log.G(ctx).Debugf("Generated id %q for container %q", id, name)
-	if err = c.containerNameIndex.Reserve(name, id); err != nil {
+	if err = c.ContainerNameIndex.Reserve(name, id); err != nil {
 		return nil, errors.Wrapf(err, "failed to reserve container name %q", name)
 	}
 	defer func() {
 		// Release the name if the function returns with an error.
 		if retErr != nil {
-			c.containerNameIndex.ReleaseByName(name)
+			c.ContainerNameIndex.ReleaseByName(name)
 		}
 	}()
 
@@ -164,7 +165,7 @@ func (c *criService) CreateContainer(ctx context.Context, r *runtime.CreateConta
 	meta.ProcessLabel = spec.Process.SelinuxLabel
 
 	// handle any KVM based runtime
-	if err := modifyProcessLabel(ociRuntime.Type, spec); err != nil {
+	if err := ModifyProcessLabel(ociRuntime.Type, spec); err != nil {
 		return nil, err
 	}
 
@@ -230,9 +231,9 @@ func (c *criService) CreateContainer(ctx context.Context, r *runtime.CreateConta
 		return nil, errors.Wrap(err, "failed to get container spec opts")
 	}
 
-	containerLabels := buildLabels(config.Labels, containerKindContainer)
+	containerLabels := BuildLabels(config.Labels, containerKindContainer)
 
-	runtimeOptions, err := getRuntimeOptions(sandboxInfo)
+	runtimeOptions, err := GetRuntimeOptions(sandboxInfo)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get runtime options")
 	}
@@ -274,7 +275,7 @@ func (c *criService) CreateContainer(ctx context.Context, r *runtime.CreateConta
 	}()
 
 	// Add container into container store.
-	if err := c.containerStore.Add(container); err != nil {
+	if err := c.ContainerStore.Add(container); err != nil {
 		return nil, errors.Wrapf(err, "failed to add container %q into store", id)
 	}
 
@@ -290,7 +291,7 @@ func (c *criService) volumeMounts(containerRootDir string, criMounts []*runtime.
 	}
 	var mounts []*runtime.Mount
 	for dst := range config.Volumes {
-		if isInCRIMounts(dst, criMounts) {
+		if IsInCRIMounts(dst, criMounts) {
 			// Skip the image volume, if there is CRI defined volume mapping.
 			// TODO(random-liu): This should be handled by Kubelet in the future.
 			// Kubelet should decide what to use for image volume, and also de-duplicate

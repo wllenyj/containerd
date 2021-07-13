@@ -41,6 +41,7 @@ import (
 	"github.com/containerd/containerd/pkg/cap"
 	"github.com/containerd/containerd/pkg/cri/annotations"
 	"github.com/containerd/containerd/pkg/cri/config"
+	criconfig "github.com/containerd/containerd/pkg/cri/config"
 	"github.com/containerd/containerd/pkg/cri/opts"
 	"github.com/containerd/containerd/pkg/cri/util"
 	ctrdutil "github.com/containerd/containerd/pkg/cri/util"
@@ -147,7 +148,7 @@ func getCreateContainerTestData() (*runtime.ContainerConfig, *runtime.PodSandbox
 		assert.Equal(t, spec.Process.NoNewPrivileges, true)
 
 		t.Logf("Check cgroup path")
-		assert.Equal(t, getCgroupsPath("/test/cgroup/parent", id), spec.Linux.CgroupsPath)
+		assert.Equal(t, GetCgroupsPath("/test/cgroup/parent", id), spec.Linux.CgroupsPath)
 
 		t.Logf("Check namespaces")
 		assert.Contains(t, spec.Linux.Namespaces, runtimespec.LinuxNamespace{
@@ -907,10 +908,12 @@ func TestGenerateSeccompSecurityProfileSpecOpts(t *testing.T) {
 		},
 	} {
 		t.Run(fmt.Sprintf("TestCase %q", desc), func(t *testing.T) {
-			cri := &criService{}
+			cri := &criService{
+				config: &criconfig.Config{},
+			}
 			cri.config.UnsetSeccompProfile = test.defaultProfile
 			ssp := test.sp
-			csp, err := generateSeccompSecurityProfile(
+			csp, err := GenerateSeccompSecurityProfile(
 				test.profile,
 				test.defaultProfile)
 			if err != nil {
@@ -923,7 +926,7 @@ func TestGenerateSeccompSecurityProfileSpecOpts(t *testing.T) {
 				if ssp == nil {
 					ssp = csp
 				}
-				specOpts, err := cri.generateSeccompSpecOpts(ssp, test.privileged, !test.disable)
+				specOpts, err := GenerateSeccompSpecOpts(ssp, test.privileged, !test.disable)
 				assert.Equal(t,
 					reflect.ValueOf(test.specOpts).Pointer(),
 					reflect.ValueOf(specOpts).Pointer())
@@ -1061,7 +1064,7 @@ func TestGenerateApparmorSpecOpts(t *testing.T) {
 	} {
 		t.Logf("TestCase %q", desc)
 		asp := test.sp
-		csp, err := generateApparmorSecurityProfile(test.profile)
+		csp, err := GenerateApparmorSecurityProfile(test.profile)
 		if err != nil {
 			if test.expectErr {
 				assert.Error(t, err)
@@ -1072,7 +1075,7 @@ func TestGenerateApparmorSpecOpts(t *testing.T) {
 			if asp == nil {
 				asp = csp
 			}
-			specOpts, err := generateApparmorSpecOpts(asp, test.privileged, !test.disable)
+			specOpts, err := GenerateApparmorSpecOpts(asp, test.privileged, !test.disable)
 			assert.Equal(t,
 				reflect.ValueOf(test.specOpts).Pointer(),
 				reflect.ValueOf(specOpts).Pointer())
@@ -1293,7 +1296,7 @@ func TestGenerateUserString(t *testing.T) {
 	}
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			r, err := generateUserString(tc.u, tc.uid, tc.gid)
+			r, err := GenerateUserString(tc.u, tc.uid, tc.gid)
 			if tc.expectedError {
 				assert.Error(t, err)
 			} else {

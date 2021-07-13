@@ -41,6 +41,9 @@ import (
 	"github.com/containerd/containerd/pkg/netns"
 )
 
+// ErrSkip is a error, used to skip recover
+var ErrSkip = errors.New("skip sandbox recover")
+
 // NOTE: The recovery logic has following assumption: when the cri plugin is down:
 // 1) Files (e.g. root directory, netns) and checkpoint maintained by the plugin MUST NOT be
 // touched. Or else, recovery logic for those containers/sandboxes may return error.
@@ -51,7 +54,7 @@ import (
 // tolerant tasks being created or started, we prefer that not to happen.
 
 // recover recovers system state from containerd and status checkpoint.
-func (c *criService) recover(ctx context.Context) error {
+func (c *criManager) recover(ctx context.Context) error {
 	// Recover all sandboxes.
 	sandboxes, err := c.client.Containers(ctx, filterLabel(containerKindLabel, containerKindSandbox))
 	if err != nil {
@@ -60,14 +63,16 @@ func (c *criService) recover(ctx context.Context) error {
 	for _, sandbox := range sandboxes {
 		sb, err := c.loadSandbox(ctx, sandbox)
 		if err != nil {
-			log.G(ctx).WithError(err).Errorf("Failed to load sandbox %q", sandbox.ID())
+			if !errors.Is(err, ErrSkip) {
+				log.G(ctx).WithError(err).Errorf("Failed to load sandbox %q", sandbox.ID())
+			}
 			continue
 		}
 		log.G(ctx).Debugf("Loaded sandbox %+v", sb)
-		if err := c.sandboxStore.Add(sb); err != nil {
+		if err := c.SandboxStore.Add(sb); err != nil {
 			return errors.Wrapf(err, "failed to add sandbox %q to store", sandbox.ID())
 		}
-		if err := c.sandboxNameIndex.Reserve(sb.Name, sb.ID); err != nil {
+		if err := c.SandboxNameIndex.Reserve(sb.Name, sb.ID); err != nil {
 			return errors.Wrapf(err, "failed to reserve sandbox name %q", sb.Name)
 		}
 	}
@@ -84,10 +89,10 @@ func (c *criService) recover(ctx context.Context) error {
 			continue
 		}
 		log.G(ctx).Debugf("Loaded container %+v", cntr)
-		if err := c.containerStore.Add(cntr); err != nil {
+		if err := c.ContainerStore.Add(cntr); err != nil {
 			return errors.Wrapf(err, "failed to add container %q to store", container.ID())
 		}
-		if err := c.containerNameIndex.Reserve(cntr.Name, cntr.ID); err != nil {
+		if err := c.ContainerNameIndex.Reserve(cntr.Name, cntr.ID); err != nil {
 			return errors.Wrapf(err, "failed to reserve container name %q", cntr.Name)
 		}
 	}
@@ -151,12 +156,12 @@ func (c *criService) recover(ctx context.Context) error {
 const loadContainerTimeout = 10 * time.Second
 
 // loadContainer loads container from containerd and status checkpoint.
-func (c *criService) loadContainer(ctx context.Context, cntr containerd.Container) (containerstore.Container, error) {
+func (c *criManager) loadContainer(ctx context.Context, cntr containerd.Container) (containerstore.Container, error) {
 	ctx, cancel := context.WithTimeout(ctx, loadContainerTimeout)
 	defer cancel()
 	id := cntr.ID()
-	containerDir := c.getContainerRootDir(id)
-	volatileContainerDir := c.getVolatileContainerRootDir(id)
+	containerDir := c.c.getContainerRootDir(id)
+	volatileContainerDir := c.c.getVolatileContainerRootDir(id)
 	var container containerstore.Container
 	// Load container metadata.
 	exts, err := cntr.Extensions(ctx)
@@ -184,7 +189,7 @@ func (c *criService) loadContainer(ctx context.Context, cntr containerd.Containe
 	err = func() error {
 		// Load up-to-date status from containerd.
 		t, err := cntr.Task(ctx, func(fifos *containerdio.FIFOSet) (_ containerdio.IO, err error) {
-			stdoutWC, stderrWC, err := c.createContainerLoggers(meta.LogPath, meta.Config.GetTty())
+			stdoutWC, stderrWC, err := c.c.createContainerLoggers(meta.LogPath, meta.Config.GetTty())
 			if err != nil {
 				return nil, err
 			}
@@ -290,7 +295,7 @@ func (c *criService) loadContainer(ctx context.Context, cntr containerd.Containe
 					status.Reason = unknownExitReason
 				} else {
 					// Start exit monitor.
-					c.eventMonitor.startContainerExitMonitor(context.Background(), id, status.Pid, exitCh)
+					c.c.eventMonitor.startContainerExitMonitor(context.Background(), id, status.Pid, exitCh)
 				}
 			case containerd.Stopped:
 				// Task is stopped. Updata status and delete the task.
@@ -323,10 +328,10 @@ func (c *criService) loadContainer(ctx context.Context, cntr containerd.Containe
 }
 
 // loadSandbox loads sandbox from containerd.
-func (c *criService) loadSandbox(ctx context.Context, cntr containerd.Container) (sandboxstore.Sandbox, error) {
+func (c *criManager) loadSandbox(ctx context.Context, cntr containerd.Container) (*Sandbox, error) {
 	ctx, cancel := context.WithTimeout(ctx, loadContainerTimeout)
 	defer cancel()
-	var sandbox sandboxstore.Sandbox
+	var sandbox *Sandbox
 	// Load sandbox metadata.
 	exts, err := cntr.Extensions(ctx)
 	if err != nil {
@@ -389,7 +394,7 @@ func (c *criService) loadSandbox(ctx context.Context, cntr containerd.Container)
 					// Task is running, set sandbox state as READY.
 					status.State = sandboxstore.StateReady
 					status.Pid = t.Pid()
-					c.eventMonitor.startSandboxExitMonitor(context.Background(), meta.ID, status.Pid, exitCh)
+					c.c.eventMonitor.startSandboxExitMonitor(context.Background(), meta.ID, status.Pid, exitCh)
 				}
 			} else {
 				// Task is not running. Delete the task and set sandbox state as NOTREADY.
@@ -405,7 +410,7 @@ func (c *criService) loadSandbox(ctx context.Context, cntr containerd.Container)
 		log.G(ctx).WithError(err).Errorf("Failed to load sandbox status for %q", cntr.ID())
 	}
 
-	sandbox = sandboxstore.NewSandbox(*meta, s)
+	sandbox = NewSandbox(*meta, s)
 	sandbox.Container = cntr
 
 	// Load network namespace.
@@ -426,7 +431,7 @@ func (c *criService) loadSandbox(ctx context.Context, cntr containerd.Container)
 }
 
 // loadImages loads images from containerd.
-func (c *criService) loadImages(ctx context.Context, cImages []containerd.Image) {
+func (c *criManager) loadImages(ctx context.Context, cImages []containerd.Image) {
 	snapshotter := c.config.ContainerdConfig.Snapshotter
 	for _, i := range cImages {
 		ok, _, _, _, err := containerdimages.Check(ctx, i.ContentStore(), i.Target(), platforms.Default())
@@ -448,7 +453,7 @@ func (c *criService) loadImages(ctx context.Context, cImages []containerd.Image)
 			log.G(ctx).Warnf("The image %s is not unpacked.", i.Name())
 			// TODO(random-liu): Consider whether we should try unpack here.
 		}
-		if err := c.updateImage(ctx, i.Name()); err != nil {
+		if err := c.c.updateImage(ctx, i.Name()); err != nil {
 			log.G(ctx).WithError(err).Warnf("Failed to update reference for image %q", i.Name())
 			continue
 		}

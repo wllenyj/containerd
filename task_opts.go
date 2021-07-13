@@ -37,6 +37,14 @@ import (
 // NewTaskOpts allows the caller to set options on a new task
 type NewTaskOpts func(context.Context, *Client, *TaskInfo) error
 
+// WithOptions
+func WithOptions(options interface{}) NewTaskOpts {
+	return func(ctx context.Context, c *Client, ti *TaskInfo) error {
+		ti.Options = options
+		return nil
+	}
+}
+
 // WithRootFS allows a task to be created without a snapshot being allocated to its container
 func WithRootFS(mounts []mount.Mount) NewTaskOpts {
 	return func(ctx context.Context, c *Client, ti *TaskInfo) error {

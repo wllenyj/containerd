@@ -56,6 +56,10 @@ type Runtime struct {
 	PrivilegedWithoutHostDevices bool `toml:"privileged_without_host_devices" json:"privileged_without_host_devices"`
 	// BaseRuntimeSpec is a json file with OCI spec to use as base spec that all container's will be created from.
 	BaseRuntimeSpec string `toml:"base_runtime_spec" json:"baseRuntimeSpec"`
+	// Mode control cri specific implementations.
+	// e.g. The "vm" is the mode used by the vm based runtime,
+	// the "cc" is the mode used by the confidential computing.
+	Mode string `toml:"mode" json:"mode"`
 }
 
 // ContainerdConfig contains toml config related to containerd
@@ -299,6 +303,8 @@ const (
 	// KeyModelNode is the key model where key for encrypted images reside
 	// on the worker nodes
 	KeyModelNode = "node"
+	// RuntimeModeDefault is the default runtime mode
+	RuntimeModeDefault = "default"
 )
 
 // ValidatePluginConfig validates the given plugin configuration.

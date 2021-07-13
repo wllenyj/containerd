@@ -54,6 +54,15 @@ func init() {
 		"github.com/containerd/cri/pkg/store/sandbox", "Metadata")
 }
 
+func (c *criService) getModeByRuntime(runtime string) string {
+	if r, ok := c.config.ContainerdConfig.Runtimes[runtime]; ok {
+		if len(r.Mode) != 0 {
+			return r.Mode
+		}
+	}
+	return criconfig.RuntimeModeDefault
+}
+
 // RunPodSandbox creates and starts a pod-level sandbox. Runtimes should ensure
 // the sandbox is in ready state.
 func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandboxRequest) (_ *runtime.RunPodSandboxResponse, retErr error) {
@@ -66,22 +75,22 @@ func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandbox
 	if metadata == nil {
 		return nil, errors.New("sandbox config must include metadata")
 	}
-	name := makeSandboxName(metadata)
+	name := MakeSandboxName(metadata)
 	log.G(ctx).Debugf("Generated id %q for sandbox %q", id, name)
 	// Reserve the sandbox name to avoid concurrent `RunPodSandbox` request starting the
 	// same sandbox.
-	if err := c.sandboxNameIndex.Reserve(name, id); err != nil {
+	if err := c.SandboxNameIndex.Reserve(name, id); err != nil {
 		return nil, errors.Wrapf(err, "failed to reserve sandbox name %q", name)
 	}
 	defer func() {
 		// Release the name if the function returns with an error.
 		if retErr != nil {
-			c.sandboxNameIndex.ReleaseByName(name)
+			c.SandboxNameIndex.ReleaseByName(name)
 		}
 	}()
 
 	// Create initial internal sandbox object.
-	sandbox := sandboxstore.NewSandbox(
+	sandbox := NewSandbox(
 		sandboxstore.Metadata{
 			ID:             id,
 			Name:           name,
@@ -107,6 +116,8 @@ func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandbox
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get sandbox runtime")
 	}
+	sandbox.Metadata.Mode = c.getModeByRuntime(r.GetRuntimeHandler())
+
 	log.G(ctx).Debugf("Use OCI %+v for sandbox %q", ociRuntime, id)
 
 	podNetwork := true
@@ -160,7 +171,7 @@ func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandbox
 		// In this case however caching the IP will add a subtle performance enhancement by avoiding
 		// calls to network namespace of the pod to query the IP of the veth interface on every
 		// SandboxStatus request.
-		if err := c.setupPodNetwork(ctx, &sandbox); err != nil {
+		if err := c.setupPodNetwork(ctx, sandbox); err != nil {
 			return nil, errors.Wrapf(err, "failed to setup network for sandbox %q", id)
 		}
 	}
@@ -182,7 +193,7 @@ func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandbox
 	}()
 
 	// handle any KVM based runtime
-	if err := modifyProcessLabel(ociRuntime.Type, spec); err != nil {
+	if err := ModifyProcessLabel(ociRuntime.Type, spec); err != nil {
 		return nil, err
 	}
 
@@ -198,7 +209,7 @@ func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandbox
 		return nil, errors.Wrap(err, "failed to generate sanbdox container spec options")
 	}
 
-	sandboxLabels := buildLabels(config.Labels, containerKindSandbox)
+	sandboxLabels := BuildLabels(config.Labels, containerKindSandbox)
 
 	runtimeOpts, err := generateRuntimeOptions(ociRuntime, c.config)
 	if err != nil {
@@ -335,7 +346,7 @@ func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandbox
 	// Add sandbox into sandbox store in INIT state.
 	sandbox.Container = container
 
-	if err := c.sandboxStore.Add(sandbox); err != nil {
+	if err := c.SandboxStore.Add(sandbox); err != nil {
 		return nil, errors.Wrapf(err, "failed to add sandbox %+v into store", sandbox)
 	}
 
@@ -350,7 +361,7 @@ func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandbox
 }
 
 // setupPodNetwork setups up the network for a pod
-func (c *criService) setupPodNetwork(ctx context.Context, sandbox *sandboxstore.Sandbox) error {
+func (c *criService) setupPodNetwork(ctx context.Context, sandbox *Sandbox) error {
 	var (
 		id     = sandbox.ID
 		config = sandbox.Config

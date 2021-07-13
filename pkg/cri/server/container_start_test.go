@@ -25,7 +25,7 @@ import (
 	containerstore "github.com/containerd/containerd/pkg/cri/store/container"
 )
 
-// TestSetContainerStarting tests setContainerStarting sets removing
+// TestSetContainerStarting tests SetContainerStarting sets removing
 // state correctly.
 func TestSetContainerStarting(t *testing.T) {
 	testID := "test-id"
@@ -84,14 +84,14 @@ func TestSetContainerStarting(t *testing.T) {
 			containerstore.WithFakeStatus(test.status),
 		)
 		assert.NoError(t, err)
-		err = setContainerStarting(container)
+		err = SetContainerStarting(container)
 		if test.expectErr {
 			assert.Error(t, err)
 			assert.Equal(t, test.status, container.Status.Get(), "metadata should not be updated")
 		} else {
 			assert.NoError(t, err)
 			assert.True(t, container.Status.Get().Starting, "starting should be set")
-			assert.NoError(t, resetContainerStarting(container))
+			assert.NoError(t, ResetContainerStarting(container))
 			assert.False(t, container.Status.Get().Starting, "starting should be reset")
 		}
 	}

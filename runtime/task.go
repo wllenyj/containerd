@@ -62,6 +62,7 @@ type ExecProcess interface {
 // Task is the runtime object for an executing container
 type Task interface {
 	Process
+	//PullImage(ctx context.Context, req *task.PullImageRequest) (*task.PullImageResponse, error)
 
 	// PID of the process
 	PID(ctx context.Context) (uint32, error)
