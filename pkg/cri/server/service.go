@@ -32,13 +32,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	"github.com/containerd/containerd/pkg/cri/store/label"
-
 	"github.com/containerd/containerd/pkg/atomic"
 	criconfig "github.com/containerd/containerd/pkg/cri/config"
-	containerstore "github.com/containerd/containerd/pkg/cri/store/container"
-	imagestore "github.com/containerd/containerd/pkg/cri/store/image"
-	sandboxstore "github.com/containerd/containerd/pkg/cri/store/sandbox"
+	cristore "github.com/containerd/containerd/pkg/cri/store/service"
 	snapshotstore "github.com/containerd/containerd/pkg/cri/store/snapshot"
 	ctrdutil "github.com/containerd/containerd/pkg/cri/util"
 	osinterface "github.com/containerd/containerd/pkg/os"
@@ -47,24 +43,20 @@ import (
 
 // criService implements CRIService.
 type criService struct {
+	// stores all resources associated with cri
+	*cristore.Store
 	// config contains all configurations.
 	config *criconfig.Config
 	// imageFSPath is the path to image filesystem.
 	imageFSPath string
 	// os is an interface for all required os operations.
 	os osinterface.OS
-	// sandboxStore stores all resources associated with sandboxes.
-	sandboxStore *sandboxstore.Store
 	// sandboxNameIndex stores all sandbox names and make sure each name
 	// is unique.
 	sandboxNameIndex *registrar.Registrar
-	// containerStore stores all resources associated with containers.
-	containerStore *containerstore.Store
 	// containerNameIndex stores all container names and make sure each
 	// name is unique.
 	containerNameIndex *registrar.Registrar
-	// imageStore stores all resources associated with images.
-	imageStore *imagestore.Store
 	// snapshotStore stores information of all snapshots.
 	snapshotStore *snapshotstore.Store
 	// netPlugin is used to setup and teardown network when run/stop pod sandbox.
@@ -88,17 +80,14 @@ type criService struct {
 	allCaps []string // nolint
 }
 
-// NewCRIService returns a new instance of CRIService
-func newCRIService(config *criconfig.Config, client *containerd.Client) (*criService, error) {
+// NewCRIService returns a new instance of CRIPlugin, it's the default implementions of CRIPlugin
+func newCRIService(config *criconfig.Config, client *containerd.Client, store *cristore.Store) (*criService, error) {
 	var err error
-	labels := label.NewStore()
 	c := &criService{
+		Store:              store,
 		config:             config,
 		client:             client,
 		os:                 osinterface.RealOS{},
-		sandboxStore:       sandboxstore.NewStore(labels),
-		containerStore:     containerstore.NewStore(labels),
-		imageStore:         imagestore.NewStore(client),
 		snapshotStore:      snapshotstore.NewStore(),
 		sandboxNameIndex:   registrar.NewRegistrar(),
 		containerNameIndex: registrar.NewRegistrar(),

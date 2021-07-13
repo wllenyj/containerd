@@ -75,6 +75,8 @@ const (
 	ContentPlugin Type = "io.containerd.content.v1"
 	// GCPlugin implements garbage collection policy
 	GCPlugin Type = "io.containerd.gc.v1"
+	// CRIServicePlugin implements cri needed service
+	CRIServicePlugin Type = "io.containerd.cri.service.v1"
 )
 
 const (
