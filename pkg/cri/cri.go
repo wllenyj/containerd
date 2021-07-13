@@ -28,6 +28,7 @@ import (
 	"github.com/containerd/containerd/api/services/namespaces/v1"
 	"github.com/containerd/containerd/api/services/tasks/v1"
 	"github.com/containerd/containerd/content"
+	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/leases"
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/platforms"
@@ -54,6 +55,7 @@ func init() {
 		ID:     "cri",
 		Config: &config,
 		Requires: []plugin.Type{
+			plugin.CRIPlugin,
 			plugin.CRIServicePlugin,
 		},
 		InitFn: initCRIService,
@@ -86,6 +88,10 @@ func initCRIService(ic *plugin.InitContext) (interface{}, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get services")
 	}
+	criServices, err := getCRIPlugin(ic)
+	if err != nil && !errors.Is(err, errdefs.ErrNotFound) {
+		return nil, errors.Wrap(err, "failed to get CRI plugin")
+	}
 	criStore, err := getCRIStore(ic)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get CRI store services")
@@ -102,7 +108,7 @@ func initCRIService(ic *plugin.InitContext) (interface{}, error) {
 		return nil, errors.Wrap(err, "failed to create containerd client")
 	}
 
-	s, err := server.NewCRIServices(c, client, criStore)
+	s, err := server.NewCRIServices(c, client, criStore, criServices)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create CRI service")
 	}
@@ -185,6 +191,23 @@ func getCRIStore(ic *plugin.InitContext) (*cristore.Store, error) {
 		return nil, errors.Wrapf(err, "failed to get instance of cri service store")
 	}
 	return i.(*cristore.Store), nil
+}
+
+// getCRIPlugin get cri services from plugin context
+func getCRIPlugin(ic *plugin.InitContext) (map[string]server.CRIPlugin, error) {
+	criPlugins := map[string]server.CRIPlugin{}
+	plugins, err := ic.GetByType(plugin.CRIPlugin)
+	if err != nil {
+		return criPlugins, errors.Wrap(err, "failed to get cri plugin")
+	}
+	for k, v := range plugins {
+		i, err := v.Instance()
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to get instance of service %q", k)
+		}
+		criPlugins[k] = i.(server.CRIPlugin)
+	}
+	return criPlugins, nil
 }
 
 // Set glog level.

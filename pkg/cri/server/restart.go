@@ -41,6 +41,9 @@ import (
 	"github.com/containerd/containerd/pkg/netns"
 )
 
+// ErrSkip is a error, used to skip recover
+var ErrSkip = errors.New("skip sandbox recover")
+
 // NOTE: The recovery logic has following assumption: when the cri plugin is down:
 // 1) Files (e.g. root directory, netns) and checkpoint maintained by the plugin MUST NOT be
 // touched. Or else, recovery logic for those containers/sandboxes may return error.
@@ -60,7 +63,9 @@ func (c *criService) recover(ctx context.Context) error {
 	for _, sandbox := range sandboxes {
 		sb, err := c.loadSandbox(ctx, sandbox)
 		if err != nil {
-			log.G(ctx).WithError(err).Errorf("Failed to load sandbox %q", sandbox.ID())
+			if !errors.Is(err, ErrSkip) {
+				log.G(ctx).WithError(err).Errorf("Failed to load sandbox %q", sandbox.ID())
+			}
 			continue
 		}
 		log.G(ctx).Debugf("Loaded sandbox %+v", sb)
@@ -341,6 +346,10 @@ func (c *criService) loadSandbox(ctx context.Context, cntr containerd.Container)
 		return sandbox, errors.Wrapf(err, "failed to unmarshal metadata extension %q", ext)
 	}
 	meta := data.(*sandboxstore.Metadata)
+	// TODO(wllenyj): runc is default implementation
+	if meta.Mode != "" && meta.Mode != DefaultCRIMode {
+		return sandbox, ErrSkip
+	}
 
 	s, err := func() (sandboxstore.Status, error) {
 		status := unknownSandboxStatus()

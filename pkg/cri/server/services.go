@@ -21,15 +21,22 @@ import (
 	"io"
 
 	"github.com/containerd/containerd"
+	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/plugin"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 	runtime_alpha "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 
 	criconfig "github.com/containerd/containerd/pkg/cri/config"
+	"github.com/containerd/containerd/pkg/cri/store"
 	cristore "github.com/containerd/containerd/pkg/cri/store/service"
 )
+
+// DefaultCRIMode is default cri mode
+// TODO(wllenyj): what name?
+const DefaultCRIMode = "runc"
 
 // grpcServices are all the grpc services provided by cri containerd.
 type grpcServices interface {
@@ -60,8 +67,9 @@ type CRIService interface {
 }
 
 type criServices struct {
-	// config contains all configurations.
 	config *criconfig.Config
+	// services contains all cri plugins
+	services map[string]CRIPlugin
 	// stores all resources associated with cri
 	store *cristore.Store
 	// default service
@@ -69,15 +77,16 @@ type criServices struct {
 }
 
 // NewCRIServices returns a new instance of CRIService
-func NewCRIServices(config criconfig.Config, client *containerd.Client, store *cristore.Store) (CRIService, error) {
+func NewCRIServices(config criconfig.Config, client *containerd.Client, store *cristore.Store, services map[string]CRIPlugin) (CRIService, error) {
 	c, err := newCRIService(&config, client, store)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create CRI service")
 	}
 	cs := &criServices{
-		config: &config,
-		store:  store,
-		c:      c,
+		config:   &config,
+		services: services,
+		store:    store,
+		c:        c,
 	}
 	return cs, nil
 }
@@ -99,16 +108,32 @@ func (c *criServices) RegisterTCP(s *grpc.Server) error {
 
 // implement CRIPlugin Initialized interface
 func (c *criServices) Initialized() bool {
-	return c.c.Initialized()
+	initialized := true
+	for _, s := range c.services {
+		initialized = initialized && s.Initialized()
+	}
+	return initialized && c.c.Initialized()
 }
 
 // Run starts the CRI service.
 func (c *criServices) Run() error {
+	for mode, s := range c.services {
+		go func(mode string, service CRIPlugin) {
+			if err := service.Run(); err != nil {
+				logrus.Fatalf("Failed to run CRI %s service", mode)
+			}
+		}(mode, s)
+	}
 	return c.c.Run()
 }
 
 // Close stops the CRI service.
 func (c *criServices) Close() error {
+	for mode, s := range c.services {
+		if err := s.Close(); err != nil {
+			logrus.Errorf("Failed to Close CRI %s service", mode)
+		}
+	}
 	return c.c.Close()
 }
 
@@ -122,110 +147,227 @@ func (c *criServices) register(s *grpc.Server) error {
 	return nil
 }
 
-func (c *criServices) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandboxRequest) (resp *runtime.RunPodSandboxResponse, retErr error) {
-	return c.c.RunPodSandbox(ctx, r)
+// getServiceByRuntime get runtime specific implementations
+func (c *criServices) getServiceByRuntime(runtime string) (CRIPlugin, error) {
+	r, ok := c.config.ContainerdConfig.Runtimes[runtime]
+	if !ok {
+		return c.c, nil
+	}
+	if len(r.Mode) == 0 || r.Mode == DefaultCRIMode {
+		return c.c, nil
+	}
+	return c.getServiceByMode(r.Mode)
 }
 
-func (c *criServices) ListPodSandbox(ctx context.Context, r *runtime.ListPodSandboxRequest) (resp *runtime.ListPodSandboxResponse, retErr error) {
+func (c *criServices) getServiceByMode(mode string) (CRIPlugin, error) {
+	i, ok := c.services[mode]
+	if !ok {
+		// there is not plugin
+		return nil, errors.Errorf("no service for %q", mode)
+	}
+	return i, nil
+}
+
+func (c *criServices) getServiceBySandboxID(id string) (CRIPlugin, error) {
+	sandbox, err := c.store.SandboxStore.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	if len(sandbox.Mode) == 0 || sandbox.Mode == DefaultCRIMode {
+		return c.c, nil
+	}
+	return c.getServiceByMode(sandbox.Mode)
+}
+
+func (c *criServices) getServiceByContainerID(id string) (CRIPlugin, error) {
+	container, err := c.store.ContainerStore.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	if len(container.Mode) == 0 || container.Mode == DefaultCRIMode {
+		return c.c, nil
+	}
+	return c.getServiceByMode(container.Mode)
+}
+
+func (c *criServices) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandboxRequest) (*runtime.RunPodSandboxResponse, error) {
+	i, err := c.getServiceByRuntime(r.GetRuntimeHandler())
+	if err != nil {
+		return nil, errors.Wrapf(err, "no runtime mode for %q is configured", r.GetRuntimeHandler())
+	}
+	return i.RunPodSandbox(ctx, r)
+}
+
+func (c *criServices) ListPodSandbox(ctx context.Context, r *runtime.ListPodSandboxRequest) (*runtime.ListPodSandboxResponse, error) {
 	return c.c.ListPodSandbox(ctx, r)
 }
 
-func (c *criServices) PodSandboxStatus(ctx context.Context, r *runtime.PodSandboxStatusRequest) (resp *runtime.PodSandboxStatusResponse, retErr error) {
-	return c.c.PodSandboxStatus(ctx, r)
+func (c *criServices) PodSandboxStatus(ctx context.Context, r *runtime.PodSandboxStatusRequest) (*runtime.PodSandboxStatusResponse, error) {
+	i, err := c.getServiceBySandboxID(r.GetPodSandboxId())
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get service for sandbox %q", r.GetPodSandboxId())
+	}
+	return i.PodSandboxStatus(ctx, r)
 }
 
-func (c *criServices) StopPodSandbox(ctx context.Context, r *runtime.StopPodSandboxRequest) (_ *runtime.StopPodSandboxResponse, err error) {
-	return c.c.StopPodSandbox(ctx, r)
+func (c *criServices) StopPodSandbox(ctx context.Context, r *runtime.StopPodSandboxRequest) (*runtime.StopPodSandboxResponse, error) {
+	i, err := c.getServiceBySandboxID(r.GetPodSandboxId())
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get service for sandbox %q", r.GetPodSandboxId())
+	}
+	return i.StopPodSandbox(ctx, r)
 }
 
-func (c *criServices) RemovePodSandbox(ctx context.Context, r *runtime.RemovePodSandboxRequest) (resp *runtime.RemovePodSandboxResponse, retErr error) {
-	return c.c.RemovePodSandbox(ctx, r)
+func (c *criServices) RemovePodSandbox(ctx context.Context, r *runtime.RemovePodSandboxRequest) (*runtime.RemovePodSandboxResponse, error) {
+	i, err := c.getServiceBySandboxID(r.GetPodSandboxId())
+	if err != nil {
+		if err != store.ErrNotExist {
+			return nil, errors.Wrapf(err, "failed to get service for sandbox %q", r.GetPodSandboxId())
+		}
+		// Do not return error if the id doesn't exist.
+		log.G(ctx).Tracef("RemovePodSandbox called for sandbox %q that does not exist",
+			r.GetPodSandboxId())
+		return &runtime.RemovePodSandboxResponse{}, nil
+	}
+	return i.RemovePodSandbox(ctx, r)
 }
 
-func (c *criServices) PortForward(ctx context.Context, r *runtime.PortForwardRequest) (res *runtime.PortForwardResponse, err error) {
-	return c.c.PortForward(ctx, r)
+func (c *criServices) PortForward(ctx context.Context, r *runtime.PortForwardRequest) (*runtime.PortForwardResponse, error) {
+	i, err := c.getServiceBySandboxID(r.GetPodSandboxId())
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get service for sandbox %q", r.GetPodSandboxId())
+	}
+	return i.PortForward(ctx, r)
 }
 
-func (c *criServices) CreateContainer(ctx context.Context, r *runtime.CreateContainerRequest) (resp *runtime.CreateContainerResponse, retErr error) {
-	return c.c.CreateContainer(ctx, r)
+func (c *criServices) CreateContainer(ctx context.Context, r *runtime.CreateContainerRequest) (*runtime.CreateContainerResponse, error) {
+	i, err := c.getServiceBySandboxID(r.GetPodSandboxId())
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get service for sandbox %q", r.GetPodSandboxId())
+	}
+	return i.CreateContainer(ctx, r)
 }
 
-func (c *criServices) StartContainer(ctx context.Context, r *runtime.StartContainerRequest) (_ *runtime.StartContainerResponse, err error) {
-	return c.c.StartContainer(ctx, r)
+func (c *criServices) StartContainer(ctx context.Context, r *runtime.StartContainerRequest) (*runtime.StartContainerResponse, error) {
+	i, err := c.getServiceByContainerID(r.GetContainerId())
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get service for container %q", r.GetContainerId())
+	}
+	return i.StartContainer(ctx, r)
 }
 
-func (c *criServices) ListContainers(ctx context.Context, r *runtime.ListContainersRequest) (resp *runtime.ListContainersResponse, retErr error) {
+func (c *criServices) ListContainers(ctx context.Context, r *runtime.ListContainersRequest) (*runtime.ListContainersResponse, error) {
 	return c.c.ListContainers(ctx, r)
 }
 
-func (c *criServices) ContainerStatus(ctx context.Context, r *runtime.ContainerStatusRequest) (res *runtime.ContainerStatusResponse, err error) {
-	return c.c.ContainerStatus(ctx, r)
+func (c *criServices) ContainerStatus(ctx context.Context, r *runtime.ContainerStatusRequest) (*runtime.ContainerStatusResponse, error) {
+	i, err := c.getServiceByContainerID(r.GetContainerId())
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get service for container %q", r.GetContainerId())
+	}
+	return i.ContainerStatus(ctx, r)
 }
 
-func (c *criServices) StopContainer(ctx context.Context, r *runtime.StopContainerRequest) (res *runtime.StopContainerResponse, err error) {
-	return c.c.StopContainer(ctx, r)
+func (c *criServices) StopContainer(ctx context.Context, r *runtime.StopContainerRequest) (*runtime.StopContainerResponse, error) {
+	i, err := c.getServiceByContainerID(r.GetContainerId())
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get service for container %q", r.GetContainerId())
+	}
+	return i.StopContainer(ctx, r)
 }
 
-func (c *criServices) RemoveContainer(ctx context.Context, r *runtime.RemoveContainerRequest) (resp *runtime.RemoveContainerResponse, retErr error) {
-	return c.c.RemoveContainer(ctx, r)
+func (c *criServices) RemoveContainer(ctx context.Context, r *runtime.RemoveContainerRequest) (*runtime.RemoveContainerResponse, error) {
+	i, err := c.getServiceByContainerID(r.GetContainerId())
+	if err != nil {
+		if err != store.ErrNotExist {
+			return nil, errors.Wrapf(err, "failed to get service for container %q", r.GetContainerId())
+		}
+		log.G(ctx).Tracef("RemoveContainer called for container %q that does not exist", r.GetContainerId())
+		return &runtime.RemoveContainerResponse{}, nil
+	}
+	return i.RemoveContainer(ctx, r)
 }
 
-func (c *criServices) ExecSync(ctx context.Context, r *runtime.ExecSyncRequest) (res *runtime.ExecSyncResponse, err error) {
-	return c.c.ExecSync(ctx, r)
+func (c *criServices) ExecSync(ctx context.Context, r *runtime.ExecSyncRequest) (*runtime.ExecSyncResponse, error) {
+	i, err := c.getServiceByContainerID(r.GetContainerId())
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get service for container %q", r.GetContainerId())
+	}
+	return i.ExecSync(ctx, r)
 }
 
-func (c *criServices) Exec(ctx context.Context, r *runtime.ExecRequest) (res *runtime.ExecResponse, err error) {
-	return c.c.Exec(ctx, r)
+func (c *criServices) Exec(ctx context.Context, r *runtime.ExecRequest) (*runtime.ExecResponse, error) {
+	i, err := c.getServiceByContainerID(r.GetContainerId())
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get service for container %q", r.GetContainerId())
+	}
+	return i.Exec(ctx, r)
 }
 
-func (c *criServices) Attach(ctx context.Context, r *runtime.AttachRequest) (res *runtime.AttachResponse, err error) {
-	return c.c.Attach(ctx, r)
+func (c *criServices) Attach(ctx context.Context, r *runtime.AttachRequest) (*runtime.AttachResponse, error) {
+	i, err := c.getServiceByContainerID(r.GetContainerId())
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get service for container %q", r.GetContainerId())
+	}
+	return i.Attach(ctx, r)
 }
 
-func (c *criServices) UpdateContainerResources(ctx context.Context, r *runtime.UpdateContainerResourcesRequest) (res *runtime.UpdateContainerResourcesResponse, err error) {
-	return c.c.UpdateContainerResources(ctx, r)
+func (c *criServices) UpdateContainerResources(ctx context.Context, r *runtime.UpdateContainerResourcesRequest) (*runtime.UpdateContainerResourcesResponse, error) {
+	i, err := c.getServiceByContainerID(r.GetContainerId())
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get service for container %q", r.GetContainerId())
+	}
+	return i.UpdateContainerResources(ctx, r)
 }
 
-func (c *criServices) PullImage(ctx context.Context, r *runtime.PullImageRequest) (res *runtime.PullImageResponse, err error) {
+func (c *criServices) PullImage(ctx context.Context, r *runtime.PullImageRequest) (*runtime.PullImageResponse, error) {
 	return c.c.PullImage(ctx, r)
 }
 
-func (c *criServices) ListImages(ctx context.Context, r *runtime.ListImagesRequest) (res *runtime.ListImagesResponse, err error) {
+func (c *criServices) ListImages(ctx context.Context, r *runtime.ListImagesRequest) (*runtime.ListImagesResponse, error) {
 	return c.c.ListImages(ctx, r)
 }
 
-func (c *criServices) ImageStatus(ctx context.Context, r *runtime.ImageStatusRequest) (res *runtime.ImageStatusResponse, err error) {
+func (c *criServices) ImageStatus(ctx context.Context, r *runtime.ImageStatusRequest) (*runtime.ImageStatusResponse, error) {
 	return c.c.ImageStatus(ctx, r)
 }
 
-func (c *criServices) RemoveImage(ctx context.Context, r *runtime.RemoveImageRequest) (_ *runtime.RemoveImageResponse, err error) {
+func (c *criServices) RemoveImage(ctx context.Context, r *runtime.RemoveImageRequest) (*runtime.RemoveImageResponse, error) {
 	return c.c.RemoveImage(ctx, r)
 }
 
-func (c *criServices) ImageFsInfo(ctx context.Context, r *runtime.ImageFsInfoRequest) (res *runtime.ImageFsInfoResponse, err error) {
+func (c *criServices) ImageFsInfo(ctx context.Context, r *runtime.ImageFsInfoRequest) (*runtime.ImageFsInfoResponse, error) {
 	return c.c.ImageFsInfo(ctx, r)
 }
 
-func (c *criServices) ContainerStats(ctx context.Context, r *runtime.ContainerStatsRequest) (res *runtime.ContainerStatsResponse, err error) {
-	return c.c.ContainerStats(ctx, r)
+func (c *criServices) ContainerStats(ctx context.Context, r *runtime.ContainerStatsRequest) (*runtime.ContainerStatsResponse, error) {
+	i, err := c.getServiceByContainerID(r.GetContainerId())
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get service for container %q", r.GetContainerId())
+	}
+	return i.ContainerStats(ctx, r)
 }
 
-func (c *criServices) ListContainerStats(ctx context.Context, r *runtime.ListContainerStatsRequest) (resp *runtime.ListContainerStatsResponse, retErr error) {
+func (c *criServices) ListContainerStats(ctx context.Context, r *runtime.ListContainerStatsRequest) (*runtime.ListContainerStatsResponse, error) {
 	return c.c.ListContainerStats(ctx, r)
 }
 
-func (c *criServices) Status(ctx context.Context, r *runtime.StatusRequest) (res *runtime.StatusResponse, err error) {
+func (c *criServices) Status(ctx context.Context, r *runtime.StatusRequest) (*runtime.StatusResponse, error) {
 	return c.c.Status(ctx, r)
 }
 
-func (c *criServices) Version(ctx context.Context, r *runtime.VersionRequest) (res *runtime.VersionResponse, err error) {
+func (c *criServices) Version(ctx context.Context, r *runtime.VersionRequest) (*runtime.VersionResponse, error) {
 	return c.c.Version(ctx, r)
 }
 
-func (c *criServices) UpdateRuntimeConfig(ctx context.Context, r *runtime.UpdateRuntimeConfigRequest) (res *runtime.UpdateRuntimeConfigResponse, err error) {
+func (c *criServices) UpdateRuntimeConfig(ctx context.Context, r *runtime.UpdateRuntimeConfigRequest) (*runtime.UpdateRuntimeConfigResponse, error) {
 	return c.c.UpdateRuntimeConfig(ctx, r)
 }
 
-func (c *criServices) ReopenContainerLog(ctx context.Context, r *runtime.ReopenContainerLogRequest) (res *runtime.ReopenContainerLogResponse, err error) {
-	return c.c.ReopenContainerLog(ctx, r)
+func (c *criServices) ReopenContainerLog(ctx context.Context, r *runtime.ReopenContainerLogRequest) (*runtime.ReopenContainerLogResponse, error) {
+	i, err := c.getServiceByContainerID(r.GetContainerId())
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get service for container %q", r.GetContainerId())
+	}
+	return i.ReopenContainerLog(ctx, r)
 }
