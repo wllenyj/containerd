@@ -35,7 +35,6 @@ import (
 	cristore "github.com/containerd/containerd/pkg/cri/store/service"
 	snapshotstore "github.com/containerd/containerd/pkg/cri/store/snapshot"
 	ostesting "github.com/containerd/containerd/pkg/os/testing"
-	"github.com/containerd/containerd/pkg/registrar"
 )
 
 const (
@@ -66,10 +65,8 @@ func newTestCRIService() *criService {
 			ImageStore:     imagestore.NewStore(nil),
 			ContainerStore: containerstore.NewStore(labels),
 		},
-		snapshotStore:      snapshotstore.NewStore(),
-		sandboxNameIndex:   registrar.NewRegistrar(),
-		containerNameIndex: registrar.NewRegistrar(),
-		netPlugin:          servertesting.NewFakeCNIPlugin(),
+		snapshotStore: snapshotstore.NewStore(),
+		netPlugin:     servertesting.NewFakeCNIPlugin(),
 	}
 }
 

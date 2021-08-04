@@ -21,16 +21,17 @@ import (
 	"github.com/containerd/containerd/api/services/images/v1"
 	"github.com/containerd/containerd/api/services/namespaces/v1"
 	"github.com/containerd/containerd/content"
-	"github.com/containerd/containerd/pkg/cri/constants"
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/services"
 	"github.com/pkg/errors"
 
+	"github.com/containerd/containerd/pkg/cri/constants"
 	containerstore "github.com/containerd/containerd/pkg/cri/store/container"
 	imagestore "github.com/containerd/containerd/pkg/cri/store/image"
 	"github.com/containerd/containerd/pkg/cri/store/label"
 	sandboxstore "github.com/containerd/containerd/pkg/cri/store/sandbox"
+	"github.com/containerd/containerd/pkg/registrar"
 )
 
 // CRIStoreService is the plugin ID
@@ -60,9 +61,11 @@ func init() {
 			}
 			labels := label.NewStore()
 			store := &Store{
-				SandboxStore:   sandboxstore.NewStore(labels),
-				ContainerStore: containerstore.NewStore(labels),
-				ImageStore:     imagestore.NewStore(client),
+				SandboxStore:       sandboxstore.NewStore(labels),
+				ContainerStore:     containerstore.NewStore(labels),
+				ImageStore:         imagestore.NewStore(client),
+				SandboxNameIndex:   registrar.NewRegistrar(),
+				ContainerNameIndex: registrar.NewRegistrar(),
 			}
 			return store, nil
 		},
@@ -114,4 +117,10 @@ type Store struct {
 	ContainerStore *containerstore.Store
 	// imageStore stores all resources associated with images.
 	ImageStore *imagestore.Store
+	// SandboxNameIndex stores all sandbox names and make sure each name
+	// is unique.
+	SandboxNameIndex *registrar.Registrar
+	// ContainerNameIndex stores all container names and make sure each
+	// name is unique.
+	ContainerNameIndex *registrar.Registrar
 }

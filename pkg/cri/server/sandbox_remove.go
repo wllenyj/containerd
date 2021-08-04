@@ -110,7 +110,7 @@ func (c *criService) RemovePodSandbox(ctx context.Context, r *runtime.RemovePodS
 	c.SandboxStore.Delete(id)
 
 	// Release the sandbox name reserved for the sandbox.
-	c.sandboxNameIndex.ReleaseByKey(id)
+	c.SandboxNameIndex.ReleaseByKey(id)
 
 	return &runtime.RemovePodSandboxResponse{}, nil
 }

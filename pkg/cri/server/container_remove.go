@@ -98,7 +98,7 @@ func (c *criService) RemoveContainer(ctx context.Context, r *runtime.RemoveConta
 
 	c.ContainerStore.Delete(id)
 
-	c.containerNameIndex.ReleaseByKey(id)
+	c.ContainerNameIndex.ReleaseByKey(id)
 
 	return &runtime.RemoveContainerResponse{}, nil
 }
