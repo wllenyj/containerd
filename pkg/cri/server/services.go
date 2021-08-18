@@ -32,14 +32,11 @@ import (
 	criconfig "github.com/containerd/containerd/pkg/cri/config"
 	"github.com/containerd/containerd/pkg/cri/store"
 	cristore "github.com/containerd/containerd/pkg/cri/store/service"
+	ctrdutil "github.com/containerd/containerd/pkg/cri/util"
 )
 
-// DefaultCRIMode is default cri mode
-// TODO(wllenyj): what name?
-const DefaultCRIMode = "runc"
-
 // grpcServices are all the grpc services provided by cri containerd.
-type grpcServices interface {
+type GrpcServices interface {
 	runtime.RuntimeServiceServer
 	runtime.ImageServiceServer
 }
@@ -49,31 +46,45 @@ type grpcAlphaServices interface {
 	runtime_alpha.ImageServiceServer
 }
 
-// CRIPlugin is the interface implement different CRI implementions
-type CRIPlugin interface {
+type CRIBase interface {
 	// need implement recover
 	Run() error
 	// used by Grpc service
 	Initialized() bool
 	// io.Closer is used by containerd to gracefully stop cri service.
 	io.Closer
-	grpcServices
+
+	GrpcServices
+}
+
+// CRIPlugin is the interface implement different CRI implementions
+type CRIPlugin interface {
+	// set delegate
+	SetDelegate(delegate GrpcServices)
+	// set config
+	SetConfig(config *criconfig.Config)
+
+	CRIBase
 }
 
 // CRIService is the interface implement CRI remote service server.
 type CRIService interface {
 	plugin.Service
-	CRIPlugin
+	CRIBase
 }
 
 type criServices struct {
+	// stores all resources associated with cri
+	*cristore.Store
+
 	config *criconfig.Config
 	// services contains all cri plugins
 	services map[string]CRIPlugin
-	// stores all resources associated with cri
-	store *cristore.Store
 	// default service
 	c *criService
+
+	// client is an instance of the containerd client
+	client *containerd.Client
 }
 
 // NewCRIServices returns a new instance of CRIService
@@ -82,11 +93,16 @@ func NewCRIServices(config criconfig.Config, client *containerd.Client, store *c
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create CRI service")
 	}
+	for _, cri := range services {
+		cri.SetDelegate(c)
+		cri.SetConfig(&config)
+	}
 	cs := &criServices{
+		Store:    store,
 		config:   &config,
 		services: services,
-		store:    store,
 		c:        c,
+		client:   client,
 	}
 	return cs, nil
 }
@@ -117,6 +133,12 @@ func (c *criServices) Initialized() bool {
 
 // Run starts the CRI service.
 func (c *criServices) Run() error {
+	logrus.Infof("[] Start recovering state")
+	if err := c.recover(ctrdutil.NamespacedContext()); err != nil {
+		return errors.Wrap(err, "failed to recover state")
+	}
+
+	// run services
 	for mode, s := range c.services {
 		go func(mode string, service CRIPlugin) {
 			if err := service.Run(); err != nil {
@@ -124,10 +146,12 @@ func (c *criServices) Run() error {
 			}
 		}(mode, s)
 	}
+
 	return c.c.Run()
 }
 
 // Close stops the CRI service.
+// TODO(random-liu): Make close synchronous.
 func (c *criServices) Close() error {
 	for mode, s := range c.services {
 		if err := s.Close(); err != nil {
@@ -148,18 +172,18 @@ func (c *criServices) register(s *grpc.Server) error {
 }
 
 // getServiceByRuntime get runtime specific implementations
-func (c *criServices) getServiceByRuntime(runtime string) (CRIPlugin, error) {
+func (c *criServices) getServiceByRuntime(runtime string) (GrpcServices, error) {
 	r, ok := c.config.ContainerdConfig.Runtimes[runtime]
 	if !ok {
 		return c.c, nil
 	}
-	if len(r.Mode) == 0 || r.Mode == DefaultCRIMode {
+	if len(r.Mode) == 0 || r.Mode == criconfig.RuntimeDefault {
 		return c.c, nil
 	}
 	return c.getServiceByMode(r.Mode)
 }
 
-func (c *criServices) getServiceByMode(mode string) (CRIPlugin, error) {
+func (c *criServices) getServiceByMode(mode string) (GrpcServices, error) {
 	i, ok := c.services[mode]
 	if !ok {
 		// there is not plugin
@@ -168,26 +192,27 @@ func (c *criServices) getServiceByMode(mode string) (CRIPlugin, error) {
 	return i, nil
 }
 
-func (c *criServices) getServiceBySandboxID(id string) (CRIPlugin, error) {
-	sandbox, err := c.store.SandboxStore.Get(id)
+func (c *criServices) getServiceBySandboxID(id string) (GrpcServices, error) {
+	sandbox, err := c.SandboxStore.Get(id)
 	if err != nil {
 		return nil, err
 	}
-	if len(sandbox.GetMetadata().Mode) == 0 || sandbox.GetMetadata().Mode == DefaultCRIMode {
+	if len(sandbox.GetMetadata().Mode) == 0 || sandbox.GetMetadata().Mode == criconfig.RuntimeDefault {
 		return c.c, nil
 	}
 	return c.getServiceByMode(sandbox.GetMetadata().Mode)
 }
 
-func (c *criServices) getServiceByContainerID(id string) (CRIPlugin, error) {
-	container, err := c.store.ContainerStore.Get(id)
+func (c *criServices) getServiceByContainerID(id string) (GrpcServices, error) {
+	container, err := c.ContainerStore.Get(id)
 	if err != nil {
 		return nil, err
 	}
-	if len(container.Mode) == 0 || container.Mode == DefaultCRIMode {
-		return c.c, nil
-	}
-	return c.getServiceByMode(container.Mode)
+	//if len(container.Mode) == 0 || container.Mode == criconfig.RuntimeDefault {
+	//	return c.c, nil
+	//}
+	//return c.getServiceByMode(container.Mode)
+	return c.getServiceBySandboxID(container.SandboxID)
 }
 
 func (c *criServices) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandboxRequest) (*runtime.RunPodSandboxResponse, error) {
@@ -321,7 +346,19 @@ func (c *criServices) UpdateContainerResources(ctx context.Context, r *runtime.U
 }
 
 func (c *criServices) PullImage(ctx context.Context, r *runtime.PullImageRequest) (*runtime.PullImageResponse, error) {
-	return c.c.PullImage(ctx, r)
+	log.G(ctx).Debugf("=====> rund PullImage%v", r)
+	if r.SandboxConfig == nil {
+		return c.c.PullImage(ctx, r)
+	}
+	key := c.SandboxNameIndex.GetKeyByName(MakeSandboxName(r.SandboxConfig.GetMetadata()))
+	if len(key) == 0 {
+		return c.c.PullImage(ctx, r)
+	}
+	i, err := c.getServiceBySandboxID(key)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get service for sandbox %q", key)
+	}
+	return i.PullImage(ctx, r)
 }
 
 func (c *criServices) ListImages(ctx context.Context, r *runtime.ListImagesRequest) (*runtime.ListImagesResponse, error) {

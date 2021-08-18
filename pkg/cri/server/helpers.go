@@ -34,6 +34,7 @@ import (
 	imagedigest "github.com/opencontainers/go-digest"
 	"github.com/pelletier/go-toml"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 
@@ -94,7 +95,7 @@ const (
 
 // makeSandboxName generates sandbox name from sandbox metadata. The name
 // generated is unique as long as sandbox metadata is unique.
-func makeSandboxName(s *runtime.PodSandboxMetadata) string {
+func MakeSandboxName(s *runtime.PodSandboxMetadata) string {
 	return strings.Join([]string{
 		s.Name,                       // 0
 		s.Namespace,                  // 1
@@ -106,7 +107,7 @@ func makeSandboxName(s *runtime.PodSandboxMetadata) string {
 // makeContainerName generates container name from sandbox and container metadata.
 // The name generated is unique as long as the sandbox container combination is
 // unique.
-func makeContainerName(c *runtime.ContainerMetadata, s *runtime.PodSandboxMetadata) string {
+func MakeContainerName(c *runtime.ContainerMetadata, s *runtime.PodSandboxMetadata) string {
 	return strings.Join([]string{
 		c.Name,                       // 0
 		s.Name,                       // 1: pod name
@@ -163,6 +164,7 @@ func getRepoDigestAndTag(namedRef docker.Named, digest imagedigest.Digest, schem
 // localResolve resolves image reference locally and returns corresponding image metadata. It
 // returns store.ErrNotExist if the reference doesn't exist.
 func (c *criService) localResolve(refOrID string) (imagestore.Image, error) {
+	logrus.Infof("====> localResolve refOfID: %q", refOrID)
 	getImageID := func(refOrId string) string {
 		if _, err := imagedigest.Parse(refOrID); err == nil {
 			return refOrID
@@ -174,6 +176,7 @@ func (c *criService) localResolve(refOrID string) (imagestore.Image, error) {
 			if err != nil {
 				return ""
 			}
+			logrus.Infof("====> docker.ParseDockerRef normalized: %q", normalized)
 			id, err := c.ImageStore.Resolve(normalized.String())
 			if err != nil {
 				return ""
@@ -187,6 +190,7 @@ func (c *criService) localResolve(refOrID string) (imagestore.Image, error) {
 		// Try to treat ref as imageID
 		imageID = refOrID
 	}
+	logrus.Infof("====> ImageStore.Resolve imageID: %q", imageID)
 	return c.ImageStore.Get(imageID)
 }
 
@@ -266,8 +270,8 @@ func (c *criService) validateTargetContainer(sandboxID, targetContainerID string
 	return targetContainer, nil
 }
 
-// isInCRIMounts checks whether a destination is in CRI mount list.
-func isInCRIMounts(dst string, mounts []*runtime.Mount) bool {
+// IsInCRIMounts checks whether a destination is in CRI mount list.
+func IsInCRIMounts(dst string, mounts []*runtime.Mount) bool {
 	for _, m := range mounts {
 		if filepath.Clean(m.ContainerPath) == filepath.Clean(dst) {
 			return true
@@ -283,7 +287,7 @@ func filterLabel(k, v string) string {
 }
 
 // buildLabel builds the labels from config to be passed to containerd
-func buildLabels(configLabels map[string]string, containerType string) map[string]string {
+func BuildLabels(configLabels map[string]string, containerType string) map[string]string {
 	labels := make(map[string]string)
 	for k, v := range configLabels {
 		labels[k] = v
@@ -361,7 +365,7 @@ func getRuntimeOptionsType(t string) interface{} {
 }
 
 // getRuntimeOptions get runtime options from container metadata.
-func getRuntimeOptions(c containers.Container) (interface{}, error) {
+func GetRuntimeOptions(c containers.Container) (interface{}, error) {
 	if c.Runtime.Options == nil {
 		return nil, nil
 	}
@@ -398,9 +402,9 @@ func unknownSandboxStatus() sandboxstore.Status {
 	}
 }
 
-// getPassthroughAnnotations filters requested pod annotations by comparing
+// GetPassthroughAnnotations filters requested pod annotations by comparing
 // against permitted annotations for the given runtime.
-func getPassthroughAnnotations(podAnnotations map[string]string,
+func GetPassthroughAnnotations(podAnnotations map[string]string,
 	runtimePodAnnotations []string) (passthroughAnnotations map[string]string) {
 	passthroughAnnotations = make(map[string]string)
 

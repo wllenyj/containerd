@@ -36,7 +36,6 @@ import (
 	criconfig "github.com/containerd/containerd/pkg/cri/config"
 	cristore "github.com/containerd/containerd/pkg/cri/store/service"
 	snapshotstore "github.com/containerd/containerd/pkg/cri/store/snapshot"
-	ctrdutil "github.com/containerd/containerd/pkg/cri/util"
 	osinterface "github.com/containerd/containerd/pkg/os"
 )
 
@@ -118,6 +117,9 @@ func newCRIService(config *criconfig.Config, client *containerd.Client, store *c
 	return c, nil
 }
 
+func (c *criService) SetDelegate(delegate CRIPlugin) {
+}
+
 // implement CRIPlugin Initialized interface
 func (c *criService) Initialized() bool {
 	return c.initialized.IsSet()
@@ -128,10 +130,10 @@ func (c *criService) Run() error {
 	logrus.Info("Start subscribing containerd event")
 	c.eventMonitor.subscribe(c.client)
 
-	logrus.Infof("Start recovering state")
-	if err := c.recover(ctrdutil.NamespacedContext()); err != nil {
-		return errors.Wrap(err, "failed to recover state")
-	}
+	//logrus.Infof("Start recovering state")
+	//if err := c.recover(ctrdutil.NamespacedContext()); err != nil {
+	//	return errors.Wrap(err, "failed to recover state")
+	//}
 
 	// Start event handler.
 	logrus.Info("Start event monitor")

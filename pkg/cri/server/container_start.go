@@ -26,6 +26,7 @@ import (
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/nri"
 	v1 "github.com/containerd/nri/types/v1"
+	"github.com/containerd/typeurl"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
@@ -37,6 +38,15 @@ import (
 	ctrdutil "github.com/containerd/containerd/pkg/cri/util"
 	cioutil "github.com/containerd/containerd/pkg/ioutil"
 )
+
+func init() {
+	const prefix = "types.containerd.io"
+	typeurl.Register(&ContaienrImage{}, prefix, "cc")
+}
+
+type ContaienrImage struct {
+	ImageName string `json:"image_name"`
+}
 
 // StartContainer starts the container.
 func (c *criService) StartContainer(ctx context.Context, r *runtime.StartContainerRequest) (retRes *runtime.StartContainerResponse, retErr error) {
@@ -52,7 +62,7 @@ func (c *criService) StartContainer(ctx context.Context, r *runtime.StartContain
 
 	// Set starting state to prevent other start/remove operations against this container
 	// while it's being started.
-	if err := setContainerStarting(cntr); err != nil {
+	if err := SetContainerStarting(cntr); err != nil {
 		return nil, errors.Wrapf(err, "failed to set starting state for container %q", id)
 	}
 	defer func() {
@@ -69,7 +79,7 @@ func (c *criService) StartContainer(ctx context.Context, r *runtime.StartContain
 				log.G(ctx).WithError(err).Errorf("failed to set start failure state for container %q", id)
 			}
 		}
-		if err := resetContainerStarting(cntr); err != nil {
+		if err := ResetContainerStarting(cntr); err != nil {
 			log.G(ctx).WithError(err).Errorf("failed to reset starting state for container %q", id)
 		}
 	}()
@@ -111,6 +121,7 @@ func (c *criService) StartContainer(ctx context.Context, r *runtime.StartContain
 	}
 
 	taskOpts := c.taskOpts(ctrInfo.Runtime.Name)
+	taskOpts = append(taskOpts, containerd.WithOptions(&ContaienrImage{ImageName: config.Image.Image}))
 	task, err := container.NewTask(ctx, ioCreation, taskOpts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create containerd task")
@@ -167,7 +178,7 @@ func (c *criService) StartContainer(ctx context.Context, r *runtime.StartContain
 
 // setContainerStarting sets the container into starting state. In starting state, the
 // container will not be removed or started again.
-func setContainerStarting(container containerstore.Container) error {
+func SetContainerStarting(container containerstore.Container) error {
 	return container.Status.Update(func(status containerstore.Status) (containerstore.Status, error) {
 		// Return error if container is not in created state.
 		if status.State() != runtime.ContainerState_CONTAINER_CREATED {
@@ -187,7 +198,7 @@ func setContainerStarting(container containerstore.Container) error {
 
 // resetContainerStarting resets the container starting state on start failure. So
 // that we could remove the container later.
-func resetContainerStarting(container containerstore.Container) error {
+func ResetContainerStarting(container containerstore.Container) error {
 	return container.Status.Update(func(status containerstore.Status) (containerstore.Status, error) {
 		status.Starting = false
 		return status, nil

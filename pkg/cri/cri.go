@@ -43,6 +43,8 @@ import (
 	criconfig "github.com/containerd/containerd/pkg/cri/config"
 	"github.com/containerd/containerd/pkg/cri/constants"
 	"github.com/containerd/containerd/pkg/cri/server"
+
+	_ "github.com/containerd/containerd/pkg/cri/services/cc"
 	cristore "github.com/containerd/containerd/pkg/cri/store/service"
 )
 

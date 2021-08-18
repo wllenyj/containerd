@@ -33,7 +33,7 @@ type instrumentedService struct {
 	c *criServices
 }
 
-func newInstrumentedService(c *criServices) grpcServices {
+func newInstrumentedService(c *criServices) GrpcServices {
 	return &instrumentedService{c: c}
 }
 

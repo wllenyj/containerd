@@ -54,7 +54,7 @@ var ErrSkip = errors.New("skip sandbox recover")
 // tolerant tasks being created or started, we prefer that not to happen.
 
 // recover recovers system state from containerd and status checkpoint.
-func (c *criService) recover(ctx context.Context) error {
+func (c *criServices) recover(ctx context.Context) error {
 	// Recover all sandboxes.
 	sandboxes, err := c.client.Containers(ctx, filterLabel(containerKindLabel, containerKindSandbox))
 	if err != nil {
@@ -156,12 +156,12 @@ func (c *criService) recover(ctx context.Context) error {
 const loadContainerTimeout = 10 * time.Second
 
 // loadContainer loads container from containerd and status checkpoint.
-func (c *criService) loadContainer(ctx context.Context, cntr containerd.Container) (containerstore.Container, error) {
+func (c *criServices) loadContainer(ctx context.Context, cntr containerd.Container) (containerstore.Container, error) {
 	ctx, cancel := context.WithTimeout(ctx, loadContainerTimeout)
 	defer cancel()
 	id := cntr.ID()
-	containerDir := c.getContainerRootDir(id)
-	volatileContainerDir := c.getVolatileContainerRootDir(id)
+	containerDir := c.c.getContainerRootDir(id)
+	volatileContainerDir := c.c.getVolatileContainerRootDir(id)
 	var container containerstore.Container
 	// Load container metadata.
 	exts, err := cntr.Extensions(ctx)
@@ -189,7 +189,7 @@ func (c *criService) loadContainer(ctx context.Context, cntr containerd.Containe
 	err = func() error {
 		// Load up-to-date status from containerd.
 		t, err := cntr.Task(ctx, func(fifos *containerdio.FIFOSet) (_ containerdio.IO, err error) {
-			stdoutWC, stderrWC, err := c.createContainerLoggers(meta.LogPath, meta.Config.GetTty())
+			stdoutWC, stderrWC, err := c.c.createContainerLoggers(meta.LogPath, meta.Config.GetTty())
 			if err != nil {
 				return nil, err
 			}
@@ -295,7 +295,7 @@ func (c *criService) loadContainer(ctx context.Context, cntr containerd.Containe
 					status.Reason = unknownExitReason
 				} else {
 					// Start exit monitor.
-					c.eventMonitor.startContainerExitMonitor(context.Background(), id, status.Pid, exitCh)
+					c.c.eventMonitor.startContainerExitMonitor(context.Background(), id, status.Pid, exitCh)
 				}
 			case containerd.Stopped:
 				// Task is stopped. Updata status and delete the task.
@@ -328,7 +328,7 @@ func (c *criService) loadContainer(ctx context.Context, cntr containerd.Containe
 }
 
 // loadSandbox loads sandbox from containerd.
-func (c *criService) loadSandbox(ctx context.Context, cntr containerd.Container) (*Sandbox, error) {
+func (c *criServices) loadSandbox(ctx context.Context, cntr containerd.Container) (*Sandbox, error) {
 	ctx, cancel := context.WithTimeout(ctx, loadContainerTimeout)
 	defer cancel()
 	var sandbox *Sandbox
@@ -346,10 +346,6 @@ func (c *criService) loadSandbox(ctx context.Context, cntr containerd.Container)
 		return sandbox, errors.Wrapf(err, "failed to unmarshal metadata extension %q", ext)
 	}
 	meta := data.(*sandboxstore.Metadata)
-	// TODO(wllenyj): runc is default implementation
-	if meta.Mode != "" && meta.Mode != DefaultCRIMode {
-		return sandbox, ErrSkip
-	}
 
 	s, err := func() (sandboxstore.Status, error) {
 		status := unknownSandboxStatus()
@@ -398,7 +394,7 @@ func (c *criService) loadSandbox(ctx context.Context, cntr containerd.Container)
 					// Task is running, set sandbox state as READY.
 					status.State = sandboxstore.StateReady
 					status.Pid = t.Pid()
-					c.eventMonitor.startSandboxExitMonitor(context.Background(), meta.ID, status.Pid, exitCh)
+					c.c.eventMonitor.startSandboxExitMonitor(context.Background(), meta.ID, status.Pid, exitCh)
 				}
 			} else {
 				// Task is not running. Delete the task and set sandbox state as NOTREADY.
@@ -432,7 +428,7 @@ func (c *criService) loadSandbox(ctx context.Context, cntr containerd.Container)
 }
 
 // loadImages loads images from containerd.
-func (c *criService) loadImages(ctx context.Context, cImages []containerd.Image) {
+func (c *criServices) loadImages(ctx context.Context, cImages []containerd.Image) {
 	snapshotter := c.config.ContainerdConfig.Snapshotter
 	for _, i := range cImages {
 		ok, _, _, _, err := containerdimages.Check(ctx, i.ContentStore(), i.Target(), platforms.Default())
@@ -454,7 +450,7 @@ func (c *criService) loadImages(ctx context.Context, cImages []containerd.Image)
 			log.G(ctx).Warnf("The image %s is not unpacked.", i.Name())
 			// TODO(random-liu): Consider whether we should try unpack here.
 		}
-		if err := c.updateImage(ctx, i.Name()); err != nil {
+		if err := c.c.updateImage(ctx, i.Name()); err != nil {
 			log.G(ctx).WithError(err).Warnf("Failed to update reference for image %q", i.Name())
 			continue
 		}

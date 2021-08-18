@@ -54,6 +54,15 @@ func init() {
 		"github.com/containerd/cri/pkg/store/sandbox", "Metadata")
 }
 
+func (c *criService) getModeByRuntime(runtime string) string {
+	if r, ok := c.config.ContainerdConfig.Runtimes[runtime]; ok {
+		if len(r.Mode) != 0 {
+			return r.Mode
+		}
+	}
+	return criconfig.RuntimeDefault
+}
+
 // RunPodSandbox creates and starts a pod-level sandbox. Runtimes should ensure
 // the sandbox is in ready state.
 func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandboxRequest) (_ *runtime.RunPodSandboxResponse, retErr error) {
@@ -66,7 +75,7 @@ func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandbox
 	if metadata == nil {
 		return nil, errors.New("sandbox config must include metadata")
 	}
-	name := makeSandboxName(metadata)
+	name := MakeSandboxName(metadata)
 	log.G(ctx).Debugf("Generated id %q for sandbox %q", id, name)
 	// Reserve the sandbox name to avoid concurrent `RunPodSandbox` request starting the
 	// same sandbox.
@@ -107,6 +116,8 @@ func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandbox
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get sandbox runtime")
 	}
+	sandbox.Metadata.Mode = c.getModeByRuntime(r.GetRuntimeHandler())
+
 	log.G(ctx).Debugf("Use OCI %+v for sandbox %q", ociRuntime, id)
 
 	podNetwork := true
@@ -176,7 +187,7 @@ func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandbox
 	}()
 
 	// handle any KVM based runtime
-	if err := modifyProcessLabel(ociRuntime.Type, spec); err != nil {
+	if err := ModifyProcessLabel(ociRuntime.Type, spec); err != nil {
 		return nil, err
 	}
 
@@ -192,7 +203,7 @@ func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandbox
 		return nil, errors.Wrap(err, "failed to generate sanbdox container spec options")
 	}
 
-	sandboxLabels := buildLabels(config.Labels, containerKindSandbox)
+	sandboxLabels := BuildLabels(config.Labels, containerKindSandbox)
 
 	runtimeOpts, err := generateRuntimeOptions(ociRuntime, c.config)
 	if err != nil {
