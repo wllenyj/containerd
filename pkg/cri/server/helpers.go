@@ -92,9 +92,9 @@ const (
 	runtimeRunhcsV1 = "io.containerd.runhcs.v1"
 )
 
-// makeSandboxName generates sandbox name from sandbox metadata. The name
+// MakeSandboxName generates sandbox name from sandbox metadata. The name
 // generated is unique as long as sandbox metadata is unique.
-func makeSandboxName(s *runtime.PodSandboxMetadata) string {
+func MakeSandboxName(s *runtime.PodSandboxMetadata) string {
 	return strings.Join([]string{
 		s.Name,                       // 0
 		s.Namespace,                  // 1

@@ -75,7 +75,7 @@ func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandbox
 	if metadata == nil {
 		return nil, errors.New("sandbox config must include metadata")
 	}
-	name := makeSandboxName(metadata)
+	name := MakeSandboxName(metadata)
 	log.G(ctx).Debugf("Generated id %q for sandbox %q", id, name)
 	// Reserve the sandbox name to avoid concurrent `RunPodSandbox` request starting the
 	// same sandbox.
