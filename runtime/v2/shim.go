@@ -550,3 +550,8 @@ func (s *shimTask) State(ctx context.Context) (runtime.State, error) {
 		ExitedAt:   response.ExitedAt,
 	}, nil
 }
+
+func (s *shimTask) ImageService(ctx context.Context) (task.ImageService, error) {
+	imageClient := task.NewImageClient(s.client)
+	return imageClient, nil
+}
