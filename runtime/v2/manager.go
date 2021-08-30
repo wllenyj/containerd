@@ -33,6 +33,7 @@ import (
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/runtime"
+	"github.com/containerd/containerd/runtime/v2/task"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 )
@@ -143,6 +144,22 @@ type TaskManager struct {
 // ID of the task manager
 func (m *TaskManager) ID() string {
 	return fmt.Sprintf("%s.%s", plugin.RuntimePluginV2, "task")
+}
+
+func (m *TaskManager) PullImage(ctx context.Context, id string, req *task.PullImageRequest) (*task.PullImageResponse, error) {
+	t, err := m.tasks.Get(ctx, id)
+	if err != nil {
+		log.G(ctx).WithField("id", id).WithError(err).Error("get task")
+		return nil, err
+	}
+	shim := t.(*shim)
+	is, err := shim.ImageService(ctx)
+	if err != nil {
+		log.G(ctx).WithField("id", id).WithError(err).Error("get ImageService")
+		return nil, err
+	}
+	log.G(ctx).WithField("id", id).Infof("TaskManager get ImageService succeed.")
+	return is.PullImage(ctx, req)
 }
 
 // Create a new task
