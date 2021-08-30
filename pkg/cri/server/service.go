@@ -43,8 +43,8 @@ import (
 	osinterface "github.com/containerd/containerd/pkg/os"
 )
 
-// grpcServices are all the grpc services provided by cri containerd.
-type grpcServices interface {
+// GrpcServices are all the grpc services provided by cri containerd.
+type GrpcServices interface {
 	runtime.RuntimeServiceServer
 	runtime.ImageServiceServer
 }
@@ -54,13 +54,31 @@ type grpcAlphaServices interface {
 	runtime_alpha.ImageServiceServer
 }
 
-// CRIService is the interface implement CRI remote service server.
-type CRIService interface {
+// CRIBase is the interface implement basic cri functions.
+type CRIBase interface {
 	Run() error
+	// Initialized indicates whether the server is initialized.
+	Initialized() bool
 	// io.Closer is used by containerd to gracefully stop cri service.
 	io.Closer
+
+	GrpcServices
+}
+
+// CRIPlugin is the interface implement different CRI implementions
+type CRIPlugin interface {
+	// set delegate
+	SetDelegate(delegate GrpcServices)
+	// set config
+	SetConfig(config *criconfig.Config)
+
+	CRIBase
+}
+
+// CRIService is the interface implement CRI remote service server.
+type CRIService interface {
 	plugin.Service
-	grpcServices
+	CRIBase
 }
 
 // criService implements CRIService.
@@ -230,6 +248,11 @@ func (c *criService) Run() error {
 		return errors.Wrap(cniNetConfMonitorErr, "cni network conf monitor error")
 	}
 	return nil
+}
+
+// implement CRIPlugin Initialized interface
+func (c *criService) Initialized() bool {
+	return c.initialized.IsSet()
 }
 
 // Close stops the CRI service.
