@@ -914,7 +914,33 @@ func (cc *ccService) ListContainers(ctx context.Context, r *runtime.ListContaine
 }
 
 func (cc *ccService) ContainerStatus(ctx context.Context, r *runtime.ContainerStatusRequest) (*runtime.ContainerStatusResponse, error) {
-	return cc.delegate.ContainerStatus(ctx, r)
+	container, err := cc.ContainerStore.Get(r.GetContainerId())
+	if err != nil {
+		return nil, errors.Wrapf(err, "an error occurred when try to find container %q", r.GetContainerId())
+	}
+	spec := &runtime.ImageSpec{
+		Image: "[Encrypted]",
+	}
+	status := server.ToCRIContainerStatus(container, spec, "[Encrypted]")
+	if status.GetCreatedAt() == 0 {
+		// CRI doesn't allow CreatedAt == 0.
+		info, err := container.Container.Info(ctx)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to get CreatedAt in %q state", status.State)
+		}
+		status.CreatedAt = info.CreatedAt.UnixNano()
+	}
+
+	info, err := server.ToCRIContainerInfo(ctx, container, r.GetVerbose())
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get verbose container info")
+	}
+
+	return &runtime.ContainerStatusResponse{
+		Status: status,
+		Info:   info,
+	}, nil
+	//return cc.delegate.ContainerStatus(ctx, r)
 }
 
 func (cc *ccService) StopContainer(ctx context.Context, r *runtime.StopContainerRequest) (*runtime.StopContainerResponse, error) {
