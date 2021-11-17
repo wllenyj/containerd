@@ -375,6 +375,7 @@ func (c *criService) registryHosts(ctx context.Context, auth *runtime.AuthConfig
 				}
 			} else if isLocalHost(host) && u.Scheme == "http" {
 				// Skipping TLS verification for localhost
+				transport.TLSClientConfig = &tls.Config{}
 				transport.TLSClientConfig.InsecureSkipVerify = true
 			}
 
