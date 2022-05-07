@@ -95,6 +95,22 @@ func (c *criService) sandboxContainerSpec(id string, config *runtime.PodSandboxC
 		specOpts = append(specOpts, customopts.WithoutNamespace(runtimespec.IPCNamespace))
 	}
 
+	// Enable pod level user namespace by annotation.
+	//v, ok := config.Annotations["io.alibaba.userns-mode"]
+	//if ok && v == "auto:keep-id" {
+	uid := runtimespec.LinuxIDMapping{
+		ContainerID: uint32(0),
+		HostID:      uint32(0),
+		Size:        uint32(0xfffffffe),
+	}
+	gid := runtimespec.LinuxIDMapping{
+		ContainerID: uint32(0),
+		HostID:      uint32(0),
+		Size:        uint32(0xfffffffe),
+	}
+	specOpts = append(specOpts, oci.WithUserNamespace([]runtimespec.LinuxIDMapping{uid}, []runtimespec.LinuxIDMapping{gid}))
+	//}
+
 	// It's fine to generate the spec before the sandbox /dev/shm
 	// is actually created.
 	sandboxDevShm := c.getSandboxDevShm(id)
