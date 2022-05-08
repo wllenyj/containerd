@@ -18,6 +18,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"path/filepath"
 	goruntime "runtime"
@@ -116,26 +117,12 @@ func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandbox
 		// Pod network is not needed on linux with host network.
 		podNetwork = false
 	}
-	if podNetwork {
-		var cancel context.CancelFunc
-		if cancel, err = c.createPodNetwork(ctx, &sandbox, id); err != nil {
-			return nil, err
-		}
-		defer func() {
-			if retErr != nil {
-				cancel()
-			}
-		}()
-		if err := c.setupPodNetwork(ctx, &sandbox); err != nil {
-			return nil, errors.Wrapf(err, "failed to setup network for sandbox %q", id)
-		}
-	}
 
 	// Create sandbox container.
 	// NOTE: sandboxContainerSpec SHOULD NOT have side
 	// effect, e.g. accessing/creating files, so that we can test
 	// it safely.
-	spec, err := c.sandboxContainerSpec(id, config, &image.ImageSpec.Config, sandbox.NetNSPath, ociRuntime.PodAnnotations)
+	spec, err := c.sandboxContainerSpec(id, config, &image.ImageSpec.Config, ociRuntime.PodAnnotations)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to generate sandbox container spec")
 	}
@@ -288,6 +275,18 @@ func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandbox
 		return nil, errors.Wrapf(err, "failed to start sandbox container task %q", id)
 	}
 
+	if podNetwork {
+		var cancel context.CancelFunc
+		if cancel, err = c.createPodNetwork(ctx, &sandbox, id, task.Pid()); err != nil {
+			return nil, err
+		}
+		defer func() {
+			if retErr != nil {
+				cancel()
+			}
+		}()
+	}
+
 	if err := sandbox.Status.Update(func(status sandboxstore.Status) (sandboxstore.Status, error) {
 		// Set the pod sandbox as ready after successfully start sandbox container.
 		status.Pid = task.Pid()
@@ -315,7 +314,7 @@ func (c *criService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandbox
 	return &runtime.RunPodSandboxResponse{PodSandboxId: id}, nil
 }
 
-func (c *criService) createPodNetwork(ctx context.Context, sandbox *sandboxstore.Sandbox, id string) (cancel context.CancelFunc, retErr error) {
+func (c *criService) createPodNetwork(ctx context.Context, sandbox *sandboxstore.Sandbox, id string, pid uint32) (cancel context.CancelFunc, retErr error) {
 	// If it is not in host network namespace then create a namespace and set the sandbox
 	// handle. NetNSPath in sandbox metadata and NetNS is non empty only for non host network
 	// namespaces. If the pod is in host network namespace then both are empty and should not
@@ -324,7 +323,8 @@ func (c *criService) createPodNetwork(ctx context.Context, sandbox *sandboxstore
 	if c.config.NetNSMountsUnderStateDir {
 		netnsMountDir = filepath.Join(c.config.StateDir, "netns")
 	}
-	sandbox.NetNS, retErr = netns.NewNetNS(netnsMountDir)
+	srcNetnsPath := fmt.Sprintf("/proc/%v/ns/net", pid)
+	sandbox.NetNS, retErr = netns.CloneNetNS(netnsMountDir, srcNetnsPath)
 	if retErr != nil {
 		return nil, errors.Wrapf(retErr, "failed to create network namespace for sandbox %q", id)
 	}

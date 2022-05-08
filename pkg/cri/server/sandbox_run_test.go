@@ -39,7 +39,6 @@ func TestSandboxContainerSpec(t *testing.T) {
 	}
 
 	testID := "test-id"
-	nsPath := "test-cni"
 	for desc, test := range map[string]struct {
 		configChange      func(*runtime.PodSandboxConfig)
 		podAnnotations    []string
@@ -101,7 +100,7 @@ func TestSandboxContainerSpec(t *testing.T) {
 		if test.imageConfigChange != nil {
 			test.imageConfigChange(imageConfig)
 		}
-		spec, err := c.sandboxContainerSpec(testID, config, imageConfig, nsPath,
+		spec, err := c.sandboxContainerSpec(testID, config, imageConfig,
 			test.podAnnotations)
 		if test.expectErr {
 			assert.Error(t, err)

@@ -37,7 +37,7 @@ import (
 )
 
 func (c *criService) sandboxContainerSpec(id string, config *runtime.PodSandboxConfig,
-	imageConfig *imagespec.ImageConfig, nsPath string, runtimePodAnnotations []string) (_ *runtimespec.Spec, retErr error) {
+	imageConfig *imagespec.ImageConfig, runtimePodAnnotations []string) (_ *runtimespec.Spec, retErr error) {
 	// Creates a spec Generator with the default spec.
 	// TODO(random-liu): [P1] Compare the default settings with docker and containerd default.
 	specOpts := []oci.SpecOpts{
@@ -84,7 +84,6 @@ func (c *criService) sandboxContainerSpec(id string, config *runtime.PodSandboxC
 		specOpts = append(specOpts, oci.WithLinuxNamespace(
 			runtimespec.LinuxNamespace{
 				Type: runtimespec.NetworkNamespace,
-				Path: nsPath,
 			}))
 	}
 	if nsOptions.GetPid() == runtime.NamespaceMode_NODE {
