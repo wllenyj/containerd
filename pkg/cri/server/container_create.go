@@ -18,6 +18,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -29,7 +30,6 @@ import (
 	"github.com/containerd/containerd/oci"
 	"github.com/containerd/containerd/snapshots"
 	"github.com/containerd/typeurl"
-	"github.com/davecgh/go-spew/spew"
 	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
 	runtimespec "github.com/opencontainers/runtime-spec/specs-go"
 	selinux "github.com/opencontainers/selinux/go-selinux"
@@ -155,7 +155,7 @@ func (c *criService) CreateContainer(ctx context.Context, r *runtime.CreateConta
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sandbox runtime: %w", err)
 	}
-	log.G(ctx).Debugf("Use OCI runtime %+v for sandbox %q and container %q", ociRuntime, sandboxID, id)
+	log.G(ctx).Debugf("Use OCI runtime %s for sandbox %q and container %q", ociRuntime, sandboxID, id)
 
 	spec, err := c.containerSpec(id, sandboxID, sandboxPid, sandbox.NetNSPath, containerName, containerdImage.Name(), config, sandboxConfig,
 		&image.ImageSpec.Config, append(mounts, volumeMounts...), ociRuntime)
@@ -180,8 +180,9 @@ func (c *criService) CreateContainer(ctx context.Context, r *runtime.CreateConta
 			selinux.ReleaseLabel(spec.Process.SelinuxLabel)
 		}
 	}()
+	debug, _ := json.Marshal(spec)
 
-	log.G(ctx).Debugf("Container %q spec: %#+v", id, spew.NewFormatter(spec))
+	log.G(ctx).Debugf("Container %q spec: %s", id, debug)
 
 	snapshotterOpt := snapshots.WithLabels(snapshots.FilterInheritedLabels(config.Annotations))
 	// Set snapshotter before any other options.

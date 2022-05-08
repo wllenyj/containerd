@@ -335,7 +335,7 @@ func (c *criService) containerSpec(
 	// TODO: User another annotation to enable CAP_SYS_ADMIN for fluid sidecar
 	//v, ok := config.Annotations["io.alibaba.userns-mode"]
 	//if ok && v == "auto:keep-id" {
-	specOpts = append(specOpts, oci.WithPrivileged)
+	//specOpts = append(specOpts, oci.WithPrivileged)
 	//}
 
 	return c.runtimeSpec(id, ociRuntime.BaseRuntimeSpec, specOpts...)

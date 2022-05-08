@@ -343,6 +343,9 @@ func (s *shimTask) Create(ctx context.Context, opts runtime.CreateOpts) (runtime
 	if topts == nil || topts.GetValue() == nil {
 		topts = opts.RuntimeOptions
 	}
+	log.G(ctx).WithFields(logrus.Fields{
+		"id": s.ID(),
+	}).Infof("==============> runc create task, options: %v", topts)
 	request := &task.CreateTaskRequest{
 		ID:         s.ID(),
 		Bundle:     s.bundle.Path,

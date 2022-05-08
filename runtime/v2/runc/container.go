@@ -90,6 +90,7 @@ func NewContainer(ctx context.Context, platform stdio.Platform, r *task.CreateTa
 		ParentCheckpoint: r.ParentCheckpoint,
 		Options:          r.Options,
 	}
+	logrus.Debugf("runc ---------> newContainer, config: %+v", config)
 
 	if err := WriteOptions(r.Bundle, opts); err != nil {
 		return nil, err
@@ -126,6 +127,7 @@ func NewContainer(ctx context.Context, platform stdio.Platform, r *task.CreateTa
 		opts,
 		rootfs,
 	)
+	logrus.Debugf("runc ---------> newInit, %+v", p)
 	if err != nil {
 		return nil, errdefs.ToGRPC(err)
 	}
@@ -213,6 +215,7 @@ func WriteRuntime(path, runtime string) error {
 func newInit(ctx context.Context, path, workDir, namespace string, platform stdio.Platform,
 	r *process.CreateConfig, options *options.Options, rootfs string) (*process.Init, error) {
 	runtime := process.NewRunc(options.Root, path, namespace, options.BinaryName, options.SystemdCgroup)
+	logrus.Debugf("runc ---------> NewRunc, %+v", runtime)
 	p := process.New(r.ID, runtime, stdio.Stdio{
 		Stdin:    r.Stdin,
 		Stdout:   r.Stdout,

@@ -69,6 +69,7 @@ func (b *binary) Start(ctx context.Context, opts *types.Any, onClose func()) (_ 
 	case logrus.DebugLevel, logrus.TraceLevel:
 		args = append(args, "-debug")
 	}
+	log.G(ctx).Infof("======================> start shim with: %v", args)
 	args = append(args, "start")
 
 	cmd, err := client.Command(

@@ -126,7 +126,7 @@ func (o *CreateOpts) args() (out []string, err error) {
 
 // Create creates a new container and returns its pid if it was created successfully
 func (r *Runc) Create(context context.Context, id, bundle string, opts *CreateOpts) error {
-	args := []string{"create", "--bundle", bundle}
+	args := []string{"--debug", "--log", "/home/wanglei01/opt/open/go_project/containerd_upstream/bin/runc.log", "create", "--bundle", bundle}
 	if opts != nil {
 		oargs, err := opts.args()
 		if err != nil {

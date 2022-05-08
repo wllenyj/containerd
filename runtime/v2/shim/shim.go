@@ -54,6 +54,7 @@ type StartOpts struct {
 	ContainerdBinary string
 	Address          string
 	TTRPCAddress     string
+	Debug            bool
 }
 
 type StopStatus struct {
@@ -329,6 +330,7 @@ func run(ctx context.Context, manager Manager, initFunc Init, name string, confi
 			ContainerdBinary: containerdBinaryFlag,
 			Address:          addressFlag,
 			TTRPCAddress:     ttrpcAddress,
+			Debug:            debugFlag,
 		}
 
 		address, err := manager.Start(ctx, id, opts)
@@ -347,6 +349,8 @@ func run(ctx context.Context, manager Manager, initFunc Init, name string, confi
 			return err
 		}
 	}
+	log.G(ctx).WithField("id", id).Infof("info ----------> set logger, debug: %v", debugFlag)
+	log.G(ctx).WithField("id", id).Debug("debug ----------> set logger")
 
 	plugin.Register(&plugin.Registration{
 		Type: plugin.InternalPlugin,
