@@ -305,6 +305,12 @@ func (c *criService) containerSpec(
 				Type: runtimespec.CgroupNamespace,
 			}))
 	}
+	// TODO: User another annotation to enable CAP_SYS_ADMIN for fluid sidecar
+	v, ok := config.Annotations["kubernetes.io.containerd.users-mode"]
+	if ok && v == "userns=auto:keep-id" {
+		specOpts = append(specOpts, oci.WithPrivileged)
+	}
+
 	return c.runtimeSpec(id, ociRuntime.BaseRuntimeSpec, specOpts...)
 }
 
