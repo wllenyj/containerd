@@ -121,7 +121,7 @@ func (c *criService) sandboxContainerSpec(id string, config *runtime.PodSandboxC
 			Source:      sandboxDevShm,
 			Destination: devShm,
 			Type:        "bind",
-			Options:     []string{"rbind", "ro"},
+			Options:     []string{"rbind", "rw"},
 		},
 		// Add resolv.conf for katacontainers to setup the DNS of pod VM properly.
 		{
