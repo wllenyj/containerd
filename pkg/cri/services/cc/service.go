@@ -775,8 +775,12 @@ func WithProcessArgs(config *runtime.ContainerConfig) oci.SpecOpts {
 	return func(ctx context.Context, client oci.Client, c *containers.Container, s *runtimespec.Spec) (err error) {
 		command, args := config.GetCommand(), config.GetArgs()
 
-		// image.Cmd
-		// image.Entrypoint
+		// TODO(wllenyj): In CC, we don't know image config here.
+		// If you supply only args for a Container, the default Entrypoint defined in the Image is run with
+		// the args that you supplied. So we use the IMAGE_ENTRYPOINT placeholder, and replace it when we get the Image.
+		if len(command) == 0 && len(args) != 0 {
+			command = append([]string{}, "IMAGE_ENTRYPOINT")
+		}
 
 		return oci.WithProcessArgs(append(command, args...)...)(ctx, client, c, s)
 	}
