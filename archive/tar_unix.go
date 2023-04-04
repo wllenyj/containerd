@@ -73,7 +73,7 @@ func open(p string) (*os.File, error) {
 	return os.Open(p)
 }
 
-func openFile(name string, flag int, perm os.FileMode) (*os.File, error) {
+func OpenFile(name string, flag int, perm os.FileMode) (*os.File, error) {
 	f, err := os.OpenFile(name, flag, perm)
 	if err != nil {
 		return nil, err
