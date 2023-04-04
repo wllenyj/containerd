@@ -344,12 +344,12 @@ func createTarFile(ctx context.Context, path, extractDir string, hdr *tar.Header
 
 	//nolint:staticcheck // TypeRegA is deprecated but we may still receive an external tar with TypeRegA
 	case tar.TypeReg, tar.TypeRegA:
-		file, err := openFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, hdrInfo.Mode())
+		file, err := OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, hdrInfo.Mode())
 		if err != nil {
 			return err
 		}
 
-		_, err = copyBuffered(ctx, file, reader)
+		_, err = CopyBuffered(ctx, file, reader)
 		if err1 := file.Close(); err == nil {
 			err = err1
 		}
@@ -670,7 +670,7 @@ func (cw *ChangeWriter) HandleChange(k fs.ChangeKind, p string, f os.FileInfo, e
 			}
 			defer file.Close()
 
-			n, err := copyBuffered(context.TODO(), cw.tw, file)
+			n, err := CopyBuffered(context.TODO(), cw.tw, file)
 			if err != nil {
 				return fmt.Errorf("failed to copy: %w", err)
 			}
@@ -736,7 +736,7 @@ func (cw *ChangeWriter) includeParents(hdr *tar.Header) error {
 	return nil
 }
 
-func copyBuffered(ctx context.Context, dst io.Writer, src io.Reader) (written int64, err error) {
+func CopyBuffered(ctx context.Context, dst io.Writer, src io.Reader) (written int64, err error) {
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
 
