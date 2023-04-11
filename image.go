@@ -36,6 +36,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/identity"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -156,6 +157,7 @@ func (i *image) Labels() map[string]string {
 }
 
 func (i *image) RootFS(ctx context.Context) ([]digest.Digest, error) {
+	logrus.Infof("====> RootFS, %s, target: %s", i.Name(), i.Target())
 	provider := i.client.ContentStore()
 	return i.i.RootFS(ctx, provider, i.platform)
 }
@@ -337,6 +339,7 @@ func WithUnpackDuplicationSuppressor(suppressor kmutex.KeyedLocker) UnpackOpt {
 }
 
 func (i *image) Unpack(ctx context.Context, snapshotterName string, opts ...UnpackOpt) error {
+	logrus.Infof("====> Unpack, %s", snapshotterName)
 	ctx, done, err := i.client.WithLease(ctx)
 	if err != nil {
 		return err

@@ -27,6 +27,8 @@ import (
 	"github.com/containerd/containerd/protobuf"
 	protobuftypes "github.com/containerd/containerd/protobuf/types"
 	"github.com/containerd/containerd/snapshots"
+	"github.com/containerd/nri/pkg/log"
+	"github.com/davecgh/go-spew/spew"
 )
 
 // NewSnapshotter returns a new Snapshotter which communicates over a GRPC
@@ -44,6 +46,8 @@ type proxySnapshotter struct {
 }
 
 func (p *proxySnapshotter) Stat(ctx context.Context, key string) (snapshots.Info, error) {
+	//log.Infof(ctx, "----------> Stat, key: %s", key)
+	//defer log.Infof(ctx, "<---------- Stat, key: %s, resp: %s", key, ret)
 	resp, err := p.client.Stat(ctx,
 		&snapshotsapi.StatSnapshotRequest{
 			Snapshotter: p.snapshotterName,
@@ -82,6 +86,7 @@ func (p *proxySnapshotter) Usage(ctx context.Context, key string) (snapshots.Usa
 }
 
 func (p *proxySnapshotter) Mounts(ctx context.Context, key string) ([]mount.Mount, error) {
+	log.Infof(ctx, "----------> Mounts, key: %s", key)
 	resp, err := p.client.Mounts(ctx, &snapshotsapi.MountsRequest{
 		Snapshotter: p.snapshotterName,
 		Key:         key,
@@ -89,6 +94,7 @@ func (p *proxySnapshotter) Mounts(ctx context.Context, key string) ([]mount.Moun
 	if err != nil {
 		return nil, errdefs.FromGRPC(err)
 	}
+	log.Infof(ctx, "<---------- Mounts, resp: %s", spew.Sdump(resp.Mounts))
 	return toMounts(resp.Mounts), nil
 }
 
@@ -99,6 +105,7 @@ func (p *proxySnapshotter) Prepare(ctx context.Context, key, parent string, opts
 			return nil, err
 		}
 	}
+	log.Infof(ctx, "----------> prepare %v, %v, %v, %v", p.snapshotterName, key, parent, local.Labels)
 	resp, err := p.client.Prepare(ctx, &snapshotsapi.PrepareSnapshotRequest{
 		Snapshotter: p.snapshotterName,
 		Key:         key,
@@ -108,6 +115,7 @@ func (p *proxySnapshotter) Prepare(ctx context.Context, key, parent string, opts
 	if err != nil {
 		return nil, errdefs.FromGRPC(err)
 	}
+	log.Infof(ctx, "<---------- prepare %s", spew.Sdump(resp.Mounts))
 	return toMounts(resp.Mounts), nil
 }
 
@@ -131,6 +139,8 @@ func (p *proxySnapshotter) View(ctx context.Context, key, parent string, opts ..
 }
 
 func (p *proxySnapshotter) Commit(ctx context.Context, name, key string, opts ...snapshots.Opt) error {
+	log.Infof(ctx, "----------> Commit , name: %s, key: %s", name, key)
+	defer log.Infof(ctx, "<---------- Commit , name: %s, key: %s", name, key)
 	var local snapshots.Info
 	for _, opt := range opts {
 		if err := opt(&local); err != nil {

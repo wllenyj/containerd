@@ -285,9 +285,12 @@ func (u *Unpacker) unpack(
 	defer cancel()
 
 	doUnpackFn := func(i int, desc ocispec.Descriptor) error {
+		//log.G(ctx).Infof("==--- UnpackFn i: %d, chainID, chain: %s, DiffIDS: %s", i, spew.Sdump(chain), spew.Sdump(diffIDs))
 		parent := identity.ChainID(chain)
+		//log.G(ctx).Infof("==--- UnpackFn i: %d, chainID, parent: %s", i, spew.Sdump(parent))
 		chain = append(chain, diffIDs[i])
 		chainID := identity.ChainID(chain).String()
+		//log.G(ctx).Infof("==--- UnpackFn i: %d, chainID: %s", i, spew.Sdump(chainID))
 
 		unlock, err := u.lockSnChainID(ctx, chainID, unpack.SnapshotterKey)
 		if err != nil {

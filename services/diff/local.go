@@ -28,8 +28,10 @@ import (
 	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/services"
 	"github.com/containerd/typeurl/v2"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
 
@@ -94,6 +96,7 @@ type local struct {
 var _ diffapi.DiffClient = &local{}
 
 func (l *local) Apply(ctx context.Context, er *diffapi.ApplyRequest, _ ...grpc.CallOption) (*diffapi.ApplyResponse, error) {
+	logrus.Infof("====> Apply, %+v", *er)
 	var (
 		ocidesc ocispec.Descriptor
 		err     error
@@ -121,6 +124,7 @@ func (l *local) Apply(ctx context.Context, er *diffapi.ApplyRequest, _ ...grpc.C
 		return nil, errdefs.ToGRPC(err)
 	}
 
+	logrus.Infof("<==== Apply, ret: %v", ocidesc)
 	return &diffapi.ApplyResponse{
 		Applied: fromDescriptor(ocidesc),
 	}, nil
@@ -128,6 +132,7 @@ func (l *local) Apply(ctx context.Context, er *diffapi.ApplyRequest, _ ...grpc.C
 }
 
 func (l *local) Diff(ctx context.Context, dr *diffapi.DiffRequest, _ ...grpc.CallOption) (*diffapi.DiffResponse, error) {
+	logrus.Infof("====> Diff, %s", spew.Sdump(dr))
 	var (
 		ocidesc ocispec.Descriptor
 		err     error
@@ -159,6 +164,7 @@ func (l *local) Diff(ctx context.Context, dr *diffapi.DiffRequest, _ ...grpc.Cal
 	if err != nil {
 		return nil, errdefs.ToGRPC(err)
 	}
+	logrus.Infof("<==== Diff, %s", ocidesc)
 
 	return &diffapi.DiffResponse{
 		Diff: fromDescriptor(ocidesc),

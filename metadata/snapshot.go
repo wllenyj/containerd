@@ -33,6 +33,7 @@ import (
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/snapshots"
+	"github.com/davecgh/go-spew/spew"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -99,8 +100,11 @@ func (s *snapshotter) resolveKey(ctx context.Context, key string) (string, error
 }
 
 func (s *snapshotter) Stat(ctx context.Context, key string) (snapshots.Info, error) {
+	log.G(ctx).Infof("-----> Stat, key: %s", key)
+
 	ns, err := namespaces.NamespaceRequired(ctx)
 	if err != nil {
+		log.G(ctx).Infof("<----- Stat, err: %v", err)
 		return snapshots.Info{}, err
 	}
 
@@ -131,18 +135,25 @@ func (s *snapshotter) Stat(ctx context.Context, key string) (snapshots.Info, err
 
 		return nil
 	}); err != nil {
+		log.G(ctx).Infof("<----- Stat, err: %v", err)
 		return snapshots.Info{}, err
 	}
 
+	log.G(ctx).Infof("====> Stat, bkey: %s", bkey)
 	info, err := s.Snapshotter.Stat(ctx, bkey)
 	if err != nil {
 		return snapshots.Info{}, err
 	}
+	log.G(ctx).Infof("<==== Stat, bkey: %s, resp: %s", bkey, spew.Sdump(info))
 
-	return overlayInfo(info, local), nil
+	ret := overlayInfo(info, local)
+	log.G(ctx).Infof("<----- Stat, key: %s, resp: %s", key, spew.Sdump(ret))
+
+	return ret, nil
 }
 
 func (s *snapshotter) Update(ctx context.Context, info snapshots.Info, fieldpaths ...string) (snapshots.Info, error) {
+	log.G(ctx).Infof("------> Undate: %s, %v", spew.Sdump(info), fieldpaths)
 	s.l.RLock()
 	defer s.l.RUnlock()
 
@@ -225,9 +236,11 @@ func (s *snapshotter) Update(ctx context.Context, info snapshots.Info, fieldpath
 		// NOTE: Perform this inside the transaction to reduce the
 		// chances of out of sync data. The backend snapshotters
 		// should perform the Update as fast as possible.
+		log.G(ctx).Infof("====> Undate: %s", spew.Sdump(inner))
 		if info, err = s.Snapshotter.Update(ctx, inner, fieldpaths...); err != nil {
 			return err
 		}
+		log.G(ctx).Infof("<==== Undate: %s", spew.Sdump(info))
 		updated = true
 
 		return nil
@@ -238,7 +251,9 @@ func (s *snapshotter) Update(ctx context.Context, info snapshots.Info, fieldpath
 		return snapshots.Info{}, err
 	}
 
-	return overlayInfo(info, local), nil
+	ret := overlayInfo(info, local)
+	log.G(ctx).Infof("<------- Undate: %s", spew.Sdump(ret))
+	return ret, nil
 }
 
 func overlayInfo(info, overlay snapshots.Info) snapshots.Info {
@@ -258,22 +273,31 @@ func overlayInfo(info, overlay snapshots.Info) snapshots.Info {
 }
 
 func (s *snapshotter) Usage(ctx context.Context, key string) (snapshots.Usage, error) {
+	log.G(ctx).Infof("-------> Usage: %s", key)
 	bkey, err := s.resolveKey(ctx, key)
 	if err != nil {
 		return snapshots.Usage{}, err
 	}
-	return s.Snapshotter.Usage(ctx, bkey)
+	log.G(ctx).Infof("====> Usage: %s", bkey)
+	ret, err := s.Snapshotter.Usage(ctx, bkey)
+	log.G(ctx).Infof("<------ Usage: %s, ret: %s", spew.Sdump(ret))
+	return ret, err
 }
 
 func (s *snapshotter) Mounts(ctx context.Context, key string) ([]mount.Mount, error) {
+	log.G(ctx).Infof("-------> Mounts : %s", key)
 	bkey, err := s.resolveKey(ctx, key)
 	if err != nil {
 		return nil, err
 	}
-	return s.Snapshotter.Mounts(ctx, bkey)
+	log.G(ctx).Infof("====> Mounts : %s", bkey)
+	ret, err := s.Snapshotter.Mounts(ctx, bkey)
+	log.G(ctx).Infof("<------- Mounts : %s, ret: %s", key, spew.Sdump(ret))
+	return ret, err
 }
 
 func (s *snapshotter) Prepare(ctx context.Context, key, parent string, opts ...snapshots.Opt) ([]mount.Mount, error) {
+	log.G(ctx).Infof("-------> Prepare key: %s, parent: %s", key, parent)
 	mounts, err := s.createSnapshot(ctx, key, parent, false, opts)
 	if err != nil {
 		return nil, err
@@ -289,11 +313,15 @@ func (s *snapshotter) Prepare(ctx context.Context, key, parent string, opts ...s
 		}
 	}
 
+	log.G(ctx).Infof("<------- Prepare key: %s, parent: %s, ret: %q", key, parent, spew.Sdump(mounts))
 	return mounts, nil
 }
 
 func (s *snapshotter) View(ctx context.Context, key, parent string, opts ...snapshots.Opt) ([]mount.Mount, error) {
-	return s.createSnapshot(ctx, key, parent, true, opts)
+	log.G(ctx).Infof("-------> View key: %s, parent: %s", key, parent)
+	ret, err := s.createSnapshot(ctx, key, parent, true, opts)
+	log.G(ctx).Infof("<------- View key: %s, parent: %s, ret: %s, err: %v", key, parent, spew.Sdump(ret), err)
+	return ret, err
 }
 
 func (s *snapshotter) createSnapshot(ctx context.Context, key, parent string, readonly bool, opts []snapshots.Opt) ([]mount.Mount, error) {
@@ -367,9 +395,13 @@ func (s *snapshotter) createSnapshot(ctx context.Context, key, parent string, re
 		rerr    error
 	)
 	if readonly {
+		log.G(ctx).Infof("====> View key: %s, parent: %s", bkey, bparent)
 		m, err = s.Snapshotter.View(ctx, bkey, bparent, bopts...)
+		log.G(ctx).Infof("<==== View key: %s, parent: %s, ret: %s", bkey, bparent, spew.Sdump(m))
 	} else {
+		log.G(ctx).Infof("====> Prepare key: %s, parent: %s", bkey, bparent)
 		m, err = s.Snapshotter.Prepare(ctx, bkey, bparent, bopts...)
+		log.G(ctx).Infof("<==== Prepare key: %s, parent: %s, ret: %s, err: %v", bkey, bparent, spew.Sdump(m), err)
 	}
 
 	// An already exists error should indicate the backend found a snapshot
@@ -378,6 +410,7 @@ func (s *snapshotter) createSnapshot(ctx context.Context, key, parent string, re
 		if target != "" {
 			var tinfo *snapshots.Info
 			filter := fmt.Sprintf(`labels."containerd.io/snapshot.ref"==%s,parent==%q`, target, bparent)
+			log.G(ctx).Infof("====> Walk target: %s, parent: %q", target, bparent)
 			if err := s.Snapshotter.Walk(ctx, func(ctx context.Context, i snapshots.Info) error {
 				if tinfo == nil && i.Kind == snapshots.KindCommitted {
 					if i.Labels["containerd.io/snapshot.ref"] != target {
@@ -497,9 +530,11 @@ func (s *snapshotter) createSnapshot(ctx context.Context, key, parent string, re
 	if rerr != nil {
 		// If the created reference is not stored, attempt clean up
 		if created != "" {
+			log.G(ctx).Infof("====> Remove key: %s", created)
 			if err := s.Snapshotter.Remove(ctx, created); err != nil {
 				log.G(ctx).WithField("snapshotter", s.name).WithField("key", created).WithError(err).Error("failed to cleanup unreferenced snapshot")
 			}
+			log.G(ctx).Infof("<==== Remove key: %s", created)
 		}
 		return nil, rerr
 	}
@@ -508,6 +543,7 @@ func (s *snapshotter) createSnapshot(ctx context.Context, key, parent string, re
 }
 
 func (s *snapshotter) Commit(ctx context.Context, name, key string, opts ...snapshots.Opt) error {
+	log.G(ctx).Infof("-------> Commit name: %s, key: %s", name, key)
 	s.l.RLock()
 	defer s.l.RUnlock()
 
@@ -609,6 +645,7 @@ func (s *snapshotter) Commit(ctx context.Context, name, key string, opts ...snap
 		// risk of the committed keys becoming out of sync. If this operation
 		// succeed and the overall transaction fails then the risk of out of
 		// sync data is higher and may require manual cleanup.
+		log.G(ctx).Infof("====> Commit name: %s, key: %s", nameKey, bkey)
 		if err := s.Snapshotter.Commit(ctx, nameKey, bkey, inheritedOpt); err != nil {
 			if errdefs.IsNotFound(err) {
 				log.G(ctx).WithField("snapshotter", s.name).WithField("key", key).WithError(err).Error("uncommittable snapshot: missing in backend, snapshot should be removed")
@@ -623,6 +660,7 @@ func (s *snapshotter) Commit(ctx context.Context, name, key string, opts ...snap
 			// mapping of duplicates and not error.
 			return err
 		}
+		log.G(ctx).Infof("<==== Commit name: %s, key: %s", nameKey, bkey)
 		bname = nameKey
 
 		return nil
@@ -644,11 +682,13 @@ func (s *snapshotter) Commit(ctx context.Context, name, key string, opts ...snap
 		}
 	}
 
+	log.G(ctx).Infof("<------- Commit name: %s, key: %s", name, key)
 	return nil
 
 }
 
 func (s *snapshotter) Remove(ctx context.Context, key string) error {
+	log.G(ctx).Infof("-------> Remove key: %s", key)
 	s.l.RLock()
 	defer s.l.RUnlock()
 
@@ -710,6 +750,7 @@ func (s *snapshotter) Remove(ctx context.Context, key string) error {
 			Snapshotter: s.name,
 		})
 	}
+	log.G(ctx).Infof("<------- Remove key: %s", key)
 	return nil
 }
 
@@ -719,6 +760,7 @@ type infoPair struct {
 }
 
 func (s *snapshotter) Walk(ctx context.Context, fn snapshots.WalkFunc, fs ...string) error {
+	log.G(ctx).Infof("-------> Walk fs: %v", fs)
 	ns, err := namespaces.NamespaceRequired(ctx)
 	if err != nil {
 		return err
@@ -789,6 +831,7 @@ func (s *snapshotter) Walk(ctx context.Context, fn snapshots.WalkFunc, fs ...str
 		}
 
 		for _, pair := range pairs {
+			log.G(ctx).Infof("====> Stat, bkey: %s", pair.bkey)
 			info, err := s.Snapshotter.Stat(ctx, pair.bkey)
 			if err != nil {
 				if errdefs.IsNotFound(err) {
@@ -796,6 +839,7 @@ func (s *snapshotter) Walk(ctx context.Context, fn snapshots.WalkFunc, fs ...str
 				}
 				return err
 			}
+			log.G(ctx).Infof("<==== Stat, bkey: %s, resp: %s", pair.bkey, spew.Sdump(info))
 
 			info = overlayInfo(info, pair.info)
 			if filter.Match(adaptSnapshot(info)) {
@@ -813,6 +857,7 @@ func (s *snapshotter) Walk(ctx context.Context, fn snapshots.WalkFunc, fs ...str
 
 	}
 
+	log.G(ctx).Infof("<------- Walk fs: %v", fs)
 	return nil
 }
 

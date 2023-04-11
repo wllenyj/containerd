@@ -33,6 +33,7 @@ import (
 	"github.com/containerd/typeurl/v2"
 	"github.com/opencontainers/image-spec/identity"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sirupsen/logrus"
 )
 
 // DeleteOpts allows the caller to set options for the deletion of a container
@@ -216,6 +217,7 @@ func WithNewSnapshot(id string, i Image, opts ...snapshots.Opt) NewContainerOpts
 		}
 
 		parent := identity.ChainID(diffIDs).String()
+		logrus.Infof("====> WithNewSnapshot, id: %s: diff: %v, parent: %s", id, diffIDs, parent)
 		c.Snapshotter, err = client.resolveSnapshotterName(ctx, c.Snapshotter)
 		if err != nil {
 			return err
