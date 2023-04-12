@@ -21,5 +21,5 @@ package builtins
 
 import (
 	_ "github.com/containerd/containerd/diff/erofs"
-	_ "github.com/containerd/containerd/snapshots/erofs/plugin"
+	_ "github.com/containerd/containerd/snapshots/erofs/snapshot/plugin"
 )

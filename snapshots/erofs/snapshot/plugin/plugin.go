@@ -24,7 +24,7 @@ import (
 
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/plugin"
-	"github.com/containerd/containerd/snapshots/erofs"
+	erofs "github.com/containerd/containerd/snapshots/erofs/snapshot"
 )
 
 type Config struct {

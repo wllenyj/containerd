@@ -180,11 +180,15 @@ func createTar(ctx context.Context, root string, reader io.Reader) error {
 }
 
 func createMeta(ctx context.Context, root string) error {
-	path := detectErofsUtils()
+	path := DetectErofsUtils()
 	if path == "" {
 		return fmt.Errorf("failed to find erofs utils.")
 	}
-	cmd := exec.CommandContext(ctx, path, "create", "-B", getMetadataPath(root), "-t", "tar-tarfs", "-D", root, getTarPath(root))
+	return ExecCommand(ctx, path, "create", "-B", getMetadataPath(root), "-t", "tar-tarfs", "-D", root, getTarPath(root))
+}
+
+func ExecCommand(ctx context.Context, name string, arg ...string) error {
+	cmd := exec.CommandContext(ctx, name, arg...)
 	cmd.Env = os.Environ()
 
 	var errBuf bytes.Buffer
@@ -216,7 +220,7 @@ func hasErofsFlags(opts []string) bool {
 	return false
 }
 
-func detectErofsUtils() string {
+func DetectErofsUtils() string {
 	path, err := exec.LookPath("nydus-image")
 	if err != nil {
 		log.L.WithError(err).Debug("nydus-img not found")
