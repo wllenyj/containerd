@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/containerd/containerd/archive"
 	"github.com/containerd/containerd/content"
@@ -123,7 +124,7 @@ func (s *diffPlugin) Apply(ctx context.Context, desc ocispec.Descriptor, mounts 
 	if err := createTar(ctx, mounts[0].Source, rc); err != nil {
 		return emptyDesc, err
 	}
-	if err := createMeta(ctx, mounts[0].Source); err != nil {
+	if err := createMeta(ctx, getBlobId(string(desc.Digest)), mounts[0].Source); err != nil {
 		return emptyDesc, err
 	}
 	//}); err != nil {
@@ -150,6 +151,13 @@ func (s *diffPlugin) Apply(ctx context.Context, desc ocispec.Descriptor, mounts 
 		Size:      rc.c,
 		Digest:    digester.Digest(),
 	}, nil
+}
+
+func getBlobId(desc string) string {
+	if strings.HasPrefix(desc, "sha256:") && len(desc) == 71 {
+		return desc[7:]
+	}
+	return desc
 }
 
 type readCounter struct {
@@ -179,12 +187,12 @@ func createTar(ctx context.Context, root string, reader io.Reader) error {
 	return err
 }
 
-func createMeta(ctx context.Context, root string) error {
+func createMeta(ctx context.Context, blobId, root string) error {
 	path := DetectErofsUtils()
 	if path == "" {
 		return fmt.Errorf("failed to find erofs utils.")
 	}
-	return ExecCommand(ctx, path, "create", "-B", getMetadataPath(root), "-t", "tar-tarfs", "-D", root, getTarPath(root))
+	return ExecCommand(ctx, path, "create", "--blob-id", blobId, "-B", getMetadataPath(root), "-t", "tar-tarfs", "-D", root, getTarPath(root))
 }
 
 func ExecCommand(ctx context.Context, name string, arg ...string) error {

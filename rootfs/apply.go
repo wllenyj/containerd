@@ -124,6 +124,10 @@ func applyLayers(ctx context.Context, layers []Layer, chain []digest.Digest, sn 
 	for {
 		key = fmt.Sprintf(snapshots.UnpackKeyFormat, uniquePart(), chainID)
 
+		fmt.Printf("=========> applyLayers\n")
+		opts = append(opts, snapshots.WithLabels(map[string]string{
+			"containerd.io/snapshot.ref": string(chainID),
+		}))
 		// Prepare snapshot with from parent, label as root
 		mounts, err = sn.Prepare(ctx, key, parent.String(), opts...)
 		if err != nil {
