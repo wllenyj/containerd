@@ -70,8 +70,9 @@ func (rb *readerBuf) Reset() {
 }
 
 // The conReader provides a concurrent Reader.
-// It will start a goroutine in the background to read data into the// buffer, then send buffer to chan, The foreground conReader will
-// receive the buffer from chan and return it to the caller.
+// It will start a goroutine in the background to read data into the buffer,
+// then send buffer to chan, The foreground conReader will receive the buffer
+// from chan and return it to the caller.
 // NOTE: The conReader itself is not concurrency safe.
 // NOTE: The conReader must be eventually closed by the caller,
 // to avoid goroutine leakage.
